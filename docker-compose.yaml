@@ -1,0 +1,106 @@
+# ============================================
+# 智旅云图 - Docker Compose 编排配置
+# ============================================
+#
+# 包含服务:
+#   - backend: FastAPI 后端服务
+#   - redis: Redis 缓存服务（可选）
+#
+# 前端说明:
+#   前端使用本地 Node.js 环境运行（npm run dev）
+#   通过 Nginx 反向代理访问后端 API
+#
+# 使用方式:
+#   后端启动: docker-compose up -d backend redis
+#   查看日志: docker-compose logs -f backend
+#   停止服务: docker-compose down
+#
+
+services:
+  # ----------------------------------------
+  # 后端服务 (FastAPI)
+  # ----------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zhilv-backend
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      # Python 环境
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      # 环境变量 (由 .env 文件提供)
+      - ZHIPU_API_KEY=${ZHIPU_API_KEY}
+      - ZHIPU_MODEL=${ZHIPU_MODEL:-glm-4.6v-FlashX}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL}
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL}
+      - RERANK_MODEL=${RERANK_MODEL}
+      - AMAP_API_KEY=${AMAP_API_KEY}
+      - CHROMA_DB_PATH=/app/chroma_db
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/trips.db}
+      - CACHE_ENABLED=${CACHE_ENABLED:-false}
+      - GUIDE_DOCS_PATH=/app/data
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      # 挂载本地代码目录，支持热更新
+      - ./backend:/app
+      # 挂载数据目录
+      - backend-data:/app/data
+      # 挂载ChromaDB向量数据库
+      - chroma-data:/app/chroma_db
+    depends_on:
+      - redis
+    networks:
+      - zhilv-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ----------------------------------------
+  # Redis 缓存服务 (可选)
+  # ----------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: zhilv-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - zhilv-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+# ----------------------------------------
+# 数据卷配置
+# ----------------------------------------
+volumes:
+  # 后端数据目录
+  backend-data:
+    driver: local
+  # ChromaDB 向量数据库
+  chroma-data:
+    driver: local
+  # Redis 数据持久化
+  redis-data:
+    driver: local
+
+# ----------------------------------------
+# 网络配置
+# ----------------------------------------
+networks:
+  zhilv-network:
+    driver: bridge
