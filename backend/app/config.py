@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     CHROMA_DB_PATH: str = "./data/chroma_db"
 
     # 数据库配置
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/trips.db"
+    DATABASE_URL: str = "sqlite:///./data/trips.db"
 
     # 缓存配置 (可选，不使用Redis)
     CACHE_ENABLED: bool = False
