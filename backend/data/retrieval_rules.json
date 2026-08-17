@@ -1,0 +1,178 @@
+{
+  "version": "1.0",
+  "description": "智旅云图 RAG 系统检索规则配置",
+  
+  "chunking": {
+    "strategy": "section_aware",
+    "rules": [
+      {
+        "section_pattern": "^## [0-9]+\\. .+",
+        "split_method": "by_section",
+        "keep_section_header": true,
+        "include_parent_sections": true,
+        "description": "按二级标题切分，如 ## 2. 核心景点"
+      },
+      {
+        "section_pattern": "^### [0-9]+\\.[0-9]+ .+",
+        "split_method": "by_subsection",
+        "keep_subsection_header": true,
+        "max_chunk_size": 800,
+        "description": "按三级标题切分，如 ### 2.1 天安门广场"
+      }
+    ],
+    "fallback": {
+      "method": "fixed_size",
+      "chunk_size": 500,
+      "overlap": 50,
+      "description": "无匹配时使用固定大小分块"
+    }
+  },
+  
+  "retrieval": {
+    "vector_search": {
+      "model": "text-embedding-3-small",
+      "dimension": 1536,
+      "similarity_metric": "cosine",
+      "top_k": 10
+    },
+    "keyword_search": {
+      "enabled": true,
+      "method": "bm25",
+      "k1": 1.5,
+      "b": 0.75,
+      "top_k": 10
+    },
+    "fusion": {
+      "method": "rrf",
+      "k": 60,
+      "weights": {
+        "vector": 0.7,
+        "keyword": 0.3
+      },
+      "description": "向量检索70%权重，关键词检索30%权重"
+    },
+    "city_routing": {
+      "enabled": true,
+      "fallback_to_all_cities": false,
+      "default_city": null,
+      "description": "根据查询自动路由到目标城市，无目标时搜全部"
+    }
+  },
+  
+  "rerank": {
+    "enabled": true,
+    "primary_model": {
+      "name": "BAAI/bge-reranker-v2-m3",
+      "model_type": "cross_encoder",
+      "max_length": 512,
+      "top_n": 5,
+      "score_threshold": 0.35,
+      "memory_requirement": "~1-1.5 GB (FP16) / ~512 MB (INT8)",
+      "description": "轻量级跨语言重排序模型，支持中文，部署友好"
+    },
+    "alternative_model": {
+      "name": "Qwen/Qwen3-VL-Reranker-2B",
+      "model_type": "sequence_classification",
+      "max_length": 8192,
+      "performance_note": "中文语义理解更强，支持多模态扩展",
+      "memory_requirement": "~5-6 GB (FP16) / ~2-3 GB (INT8)",
+      "upgrade_condition": "服务器显存 ≥ 8GB 时可切换",
+      "description": "效果更优，但因当前服务器内存限制暂不采用"
+    },
+    "strategy": {
+      "method": "sentence_window",
+      "window_size": 3,
+      "expand_context": true,
+      "description": "重排时扩展上下文窗口，纳入相邻块确保行程连贯性"
+    }
+  },
+  
+  "filters": {
+    "supported_dimensions": [
+      {
+        "field": "city",
+        "type": "enum",
+        "values": ["北京", "大理", "成都", "西安", "厦门", "三亚"],
+        "description": "城市过滤"
+      },
+      {
+        "field": "category",
+        "type": "enum",
+        "values": ["景点", "餐饮", "住宿", "行程"],
+        "description": "内容类别"
+      },
+      {
+        "field": "budget_level",
+        "type": "enum",
+        "values": ["经济型", "舒适型", "高端型"],
+        "description": "预算等级"
+      }
+    ],
+    "default_filters": {},
+    "auto_extract_from_query": true,
+    "description": "从用户查询中自动提取过滤条件"
+  },
+  
+  "query_preprocess": {
+    "expansion": {
+      "enabled": true,
+      "synonyms": {},
+      "description": "查询扩展同义词"
+    },
+    "intent_detection": {
+      "enabled": true,
+      "patterns": [
+        {
+          "intent": "景点推荐",
+          "keywords": ["景点", "玩什么", "去哪", "打卡", "观光"],
+          "boost_categories": ["景点"]
+        },
+        {
+          "intent": "餐饮推荐",
+          "keywords": ["吃", "美食", "餐厅", "小吃", "推荐吃的"],
+          "boost_categories": ["餐饮"]
+        },
+        {
+          "intent": "住宿推荐",
+          "keywords": ["住", "酒店", "民宿", "住宿"],
+          "boost_categories": ["住宿"]
+        },
+        {
+          "intent": "行程规划",
+          "keywords": ["行程", "几天", "路线", "安排", "玩几天"],
+          "boost_categories": ["行程"]
+        }
+      ]
+    },
+    "city_extraction": {
+      "enabled": true,
+      "city_names": ["北京", "大理", "成都", "西安", "厦门", "三亚"]
+    },
+    "date_extraction": {
+      "enabled": true,
+      "extract_trip_days": true
+    }
+  },
+  
+  "output": {
+    "max_chunks": 5,
+    "max_total_tokens": 3000,
+    "include_metadata": {
+      "city": true,
+      "category": true,
+      "source_section": true,
+      "similarity_score": true
+    },
+    "format": "structured",
+    "structure": {
+      "city": "string",
+      "category": "string",
+      "content": "string",
+      "metadata": {
+        "source_file": "string",
+        "section_title": "string",
+        "similarity_score": "float"
+      }
+    }
+  }
+}
