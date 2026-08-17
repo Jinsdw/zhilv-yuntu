@@ -174,5 +174,44 @@
         "similarity_score": "float"
       }
     }
+  },
+
+  "retriever": {
+    "query_preprocess": {
+      "city_extraction": {
+        "enabled": true,
+        "cities": ["北京", "大理", "成都", "西安", "厦门", "三亚", "上海", "广州", "深圳", "杭州", "苏州", "重庆", "青岛", "武汉", "南京"]
+      },
+      "days_extraction": {
+        "enabled": true,
+        "patterns": ["天", "日"]
+      }
+    },
+    "intent_detection": {
+      "enabled": true,
+      "use_llm": true,
+      "model": "glm-4.6v-FlashX",
+      "fallback_to_keyword": true,
+      "intents": ["scenic_spot", "dining", "accommodation", "itinerary"]
+    },
+    "query_expansion": {
+      "enabled": true,
+      "use_embedding": true,
+      "embedding_model": "embedding-3",
+      "top_k": 5
+    },
+    "rerank": {
+      "enabled": true,
+      "model": "BAAI/bge-reranker-v2-m3",
+      "top_n": 5,
+      "score_threshold": 0.35,
+      "max_length": 512
+    },
+    "cache": {
+      "enabled": true,
+      "backend": "redis",
+      "ttl_seconds": 3600,
+      "prefix": "rag:retrieval:"
+    }
   }
 }
