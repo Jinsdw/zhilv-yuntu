@@ -1,0 +1,281 @@
+/*
+ * 智旅云图 - 行程报告 PDF 样式表
+ * 
+ * 设计说明：
+ * - 使用系统字体，支持中文显示
+ * - A4 纸张，2cm 边距
+ * - 蓝色(#2563eb)为主色调
+ */
+
+/* 页面设置 */
+@page {
+    size: A4;
+    margin: 2cm 1.5cm;
+}
+
+@page :first {
+    margin-top: 3cm;
+}
+
+/* 页脚 */
+@page {
+    @bottom-center {
+        content: "智旅云图 · 行程规划" "    第 " counter(page) " 页";
+        font-size: 9pt;
+        color: #94a3b8;
+    }
+}
+
+/* 基础样式 */
+body {
+    font-family: "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 11pt;
+    line-height: 1.7;
+    color: #1e293b;
+}
+
+/* 封面区域 */
+.cover {
+    text-align: center;
+    padding: 120px 0;
+    page-break-after: always;
+}
+
+.cover-logo {
+    font-size: 32pt;
+    font-weight: bold;
+    color: #2563eb;
+    margin-bottom: 8px;
+    letter-spacing: 4px;
+}
+
+.cover-title {
+    font-size: 14pt;
+    color: #64748b;
+    margin-bottom: 60px;
+    letter-spacing: 8px;
+}
+
+.cover-trip-name {
+    font-size: 26pt;
+    font-weight: bold;
+    color: #0f172a;
+    margin-bottom: 40px;
+}
+
+.cover-meta {
+    font-size: 11pt;
+    color: #64748b;
+}
+
+.cover-meta span {
+    margin: 0 12px;
+}
+
+/* 章节通用样式 */
+.section {
+    margin-bottom: 25px;
+}
+
+.section-title {
+    font-size: 15pt;
+    color: #2563eb;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 8px;
+    margin-bottom: 15px;
+}
+
+/* 概览表格 */
+.overview-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 15px;
+}
+
+.overview-table td {
+    padding: 10px 14px;
+    border: 1px solid #e2e8f0;
+}
+
+.overview-table td:first-child {
+    width: 110px;
+    background: #f8fafc;
+    font-weight: bold;
+    color: #475569;
+}
+
+/* 每日行程 */
+.day-section {
+    background: #f8fafc;
+    padding: 18px;
+    border-radius: 10px;
+    margin-bottom: 25px;
+    page-break-inside: avoid;
+}
+
+.day-header {
+    margin-bottom: 15px;
+}
+
+.day-title {
+    font-size: 14pt;
+    color: #1e293b;
+    font-weight: bold;
+}
+
+.day-theme {
+    color: #64748b;
+    font-size: 10pt;
+    margin-top: 4px;
+}
+
+.weather {
+    display: inline-block;
+    background: #dcfce7;
+    color: #166534;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 9pt;
+    margin-left: 8px;
+}
+
+/* 行程项目 */
+.itinerary-item {
+    display: flex;
+    margin-bottom: 12px;
+    padding: 12px;
+    background: white;
+    border-radius: 8px;
+    border-left: 3px solid #2563eb;
+    page-break-inside: avoid;
+}
+
+.item-time {
+    width: 95px;
+    font-weight: bold;
+    color: #2563eb;
+    font-size: 10pt;
+    flex-shrink: 0;
+}
+
+.item-content {
+    flex: 1;
+}
+
+.item-place {
+    font-weight: bold;
+    color: #1e293b;
+    margin-bottom: 3px;
+}
+
+.item-activity {
+    color: #64748b;
+    font-size: 10pt;
+}
+
+.item-tip {
+    color: #16a34a;
+    font-size: 9pt;
+    margin-top: 4px;
+    padding-left: 8px;
+    border-left: 2px solid #dcfce7;
+}
+
+/* 餐饮区域 */
+.meal-section {
+    margin: 12px 0;
+    padding: 10px 12px;
+    background: #fef3c7;
+    border-radius: 6px;
+    border-left: 3px solid #f59e0b;
+    page-break-inside: avoid;
+}
+
+.meal-type {
+    font-weight: bold;
+    color: #92400e;
+    font-size: 10pt;
+    margin-bottom: 4px;
+}
+
+.meal-name {
+    color: #78350f;
+    font-weight: bold;
+}
+
+.meal-address {
+    color: #a16207;
+    font-size: 9pt;
+    margin-top: 2px;
+}
+
+.meal-cuisine,
+.meal-price {
+    color: #b45309;
+    font-size: 9pt;
+    display: inline-block;
+    margin-right: 12px;
+}
+
+/* 每日费用 */
+.daily-cost {
+    text-align: right;
+    padding: 10px 15px;
+    background: #dbeafe;
+    border-radius: 6px;
+    margin-top: 15px;
+    font-size: 10pt;
+}
+
+.cost-label {
+    color: #1e40af;
+}
+
+.cost-value {
+    font-weight: bold;
+    color: #2563eb;
+    font-size: 13pt;
+    margin-left: 8px;
+}
+
+/* 行程贴士 */
+.tips-section {
+    background: #f0fdf4;
+    padding: 18px;
+    border-radius: 10px;
+    page-break-inside: avoid;
+}
+
+.tips-list {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.tips-list li {
+    margin-bottom: 8px;
+    color: #166534;
+}
+
+/* 页脚 */
+.footer {
+    text-align: center;
+    margin-top: 60px;
+    padding-top: 20px;
+}
+
+.footer-line {
+    border-top: 1px solid #e2e8f0;
+    margin-bottom: 15px;
+}
+
+.footer-brand {
+    color: #2563eb;
+    font-weight: bold;
+    font-size: 11pt;
+}
+
+.footer-time {
+    color: #94a3b8;
+    font-size: 9pt;
+    margin-top: 5px;
+}

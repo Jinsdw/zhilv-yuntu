@@ -37,3 +37,6 @@ pytest-cov>=4.1.0
 
 # 其他
 loguru>=0.7.0
+
+# PDF生成
+weasyprint>=60.0

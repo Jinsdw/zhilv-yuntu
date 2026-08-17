@@ -54,6 +54,19 @@ from .weather_service import (
     batch_get_weather,
     get_trip_weather,
 )
+from .export_service import (
+    ExportService,
+    ExportFormat,
+    ExportOptions,
+    ExportRequest,
+    ExportResponse,
+    ExportFileMetadata,
+    ExportError,
+    TripNotFoundError,
+    UnsupportedFormatError,
+    FileWriteError,
+    export_service,
+)
 
 __all__ = [
     # Cache
@@ -105,4 +118,16 @@ __all__ = [
     "get_forecast",
     "batch_get_weather",
     "get_trip_weather",
+    # Export Service
+    "ExportService",
+    "ExportFormat",
+    "ExportOptions",
+    "ExportRequest",
+    "ExportResponse",
+    "ExportFileMetadata",
+    "ExportError",
+    "TripNotFoundError",
+    "UnsupportedFormatError",
+    "FileWriteError",
+    "export_service",
 ]
