@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
 
     # Embedding 配置
-    EMBEDDING_MODEL: str = "text-embedding-v4"
+    EMBEDDING_MODEL: str = "embedding-3"
     EMBEDDING_API_KEY: str = ZHIPU_API_KEY
     EMBEDDING_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
 
@@ -34,16 +34,16 @@ class Settings(BaseSettings):
     RERANK_MODEL: str = "rerank"
 
     # ChromaDB 配置
-    CHROMA_DB_PATH: str = "./data/chroma_db"
+    CHROMA_DB_PATH: str = "./backend/data/chroma_db"
 
     # 数据库配置
-    DATABASE_URL: str = "sqlite:///./data/trips.db"
+    DATABASE_URL: str = "sqlite:///./backend/data/trips.db"
 
     # 缓存配置 (可选，不使用Redis)
     CACHE_ENABLED: bool = False
 
     # 攻略文档路径
-    GUIDE_DOCS_PATH: str = "./data/guides"
+    GUIDE_DOCS_PATH: str = "./backend/data"
 
     # 日志配置
     LOG_LEVEL: str = "INFO"
