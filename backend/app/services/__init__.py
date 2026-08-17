@@ -42,6 +42,18 @@ from .map_service import (
     init_map_service,
     get_map_service,
 )
+from .weather_service import (
+    WeatherService,
+    WeatherLiveData,
+    WeatherForecastData,
+    weather_service,
+    init_weather_service,
+    get_weather_service,
+    get_live_weather,
+    get_forecast,
+    batch_get_weather,
+    get_trip_weather,
+)
 
 __all__ = [
     # Cache
@@ -82,4 +94,15 @@ __all__ = [
     "_map_service",
     "init_map_service",
     "get_map_service",
+    # Weather Service
+    "WeatherService",
+    "WeatherLiveData",
+    "WeatherForecastData",
+    "weather_service",
+    "init_weather_service",
+    "get_weather_service",
+    "get_live_weather",
+    "get_forecast",
+    "batch_get_weather",
+    "get_trip_weather",
 ]
