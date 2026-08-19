@@ -1,0 +1,158 @@
+{
+  "summary": {
+    "timestamp": "2026-08-17 21:50:24",
+    "level": "quick",
+    "total_cases": 8,
+    "passed_cases": 0,
+    "failed_cases": 8,
+    "pass_rate": "0.0%",
+    "error_count": 0
+  },
+  "metrics": {
+    "intent_accuracy": "100.0%",
+    "city_extraction_accuracy": "100.0%",
+    "days_extraction_accuracy": "100.0%",
+    "mean_mrr": "0.0%",
+    "recall_at_k": {
+      "@1": "100.0%",
+      "@3": "100.0%",
+      "@5": "100.0%",
+      "@10": "100.0%"
+    },
+    "precision_at_k": {
+      "@1": "0.0%",
+      "@3": "0.0%",
+      "@5": "0.0%",
+      "@10": "0.0%"
+    },
+    "ndcg_at_k": {
+      "@1": "0.0%",
+      "@3": "0.0%",
+      "@5": "0.0%",
+      "@10": "0.0%"
+    },
+    "latency": {
+      "avg_ms": "18701",
+      "p50_ms": "5063",
+      "p95_ms": "113671",
+      "p99_ms": "113671",
+      "min_ms": "3738",
+      "max_ms": "113671"
+    },
+    "stages_breakdown": {
+      "preprocess_ms": 0.12,
+      "intent_detect_ms": 2860.55,
+      "cache_check_ms": 0.0,
+      "search_ms": 15702.27,
+      "rerank_ms": 0.0,
+      "total_ms": 18562.98
+    }
+  },
+  "category_stats": {
+    "通用查询": {
+      "total": 8,
+      "passed": 0,
+      "failed": 8
+    }
+  },
+  "difficulty_stats": {
+    "medium": {
+      "total": 8,
+      "passed": 0,
+      "failed": 8
+    }
+  },
+  "priority_stats": {
+    "P1": {
+      "total": 8,
+      "passed": 0,
+      "failed": 8
+    }
+  },
+  "recommendations": [
+    "P95 延迟较高 (113671ms)，建议开启缓存或优化检索流程",
+    "MRR 较低 (0.0%)，建议优化 Rerank 模型或调整融合权重"
+  ],
+  "failed_cases": [
+    {
+      "case_id": "base_001",
+      "query": "北京三天怎么玩？",
+      "detected_intent": "itinerary",
+      "detected_city": "北京",
+      "intent_correct": true,
+      "city_correct": true,
+      "latency_ms": 113670.59326171875,
+      "error": null
+    },
+    {
+      "case_id": "base_002",
+      "query": "大理玩两天，有什么推荐",
+      "detected_intent": "itinerary",
+      "detected_city": "大理",
+      "intent_correct": true,
+      "city_correct": true,
+      "latency_ms": 6909.894704818726,
+      "error": null
+    },
+    {
+      "case_id": "base_003",
+      "query": "去厦门五日游怎么安排",
+      "detected_intent": "itinerary",
+      "detected_city": "厦门",
+      "intent_correct": true,
+      "city_correct": true,
+      "latency_ms": 4079.272747039795,
+      "error": null
+    },
+    {
+      "case_id": "base_004",
+      "query": "西安四天三晚行程",
+      "detected_intent": "itinerary",
+      "detected_city": "西安",
+      "intent_correct": true,
+      "city_correct": true,
+      "latency_ms": 7565.107583999634,
+      "error": null
+    },
+    {
+      "case_id": "base_005",
+      "query": "成都必去的景点有哪些？",
+      "detected_intent": "scenic_spot",
+      "detected_city": "成都",
+      "intent_correct": true,
+      "city_correct": true,
+      "latency_ms": 5062.760829925537,
+      "error": null
+    },
+    {
+      "case_id": "base_006",
+      "query": "西安有什么打卡的地方",
+      "detected_intent": "scenic_spot",
+      "detected_city": "西安",
+      "intent_correct": true,
+      "city_correct": true,
+      "latency_ms": 4636.759519577026,
+      "error": null
+    },
+    {
+      "case_id": "base_007",
+      "query": "大理好玩的景点推荐",
+      "detected_intent": "scenic_spot",
+      "detected_city": "大理",
+      "intent_correct": true,
+      "city_correct": true,
+      "latency_ms": 3946.4168548583984,
+      "error": null
+    },
+    {
+      "case_id": "base_008",
+      "query": "厦门哪些景点值得去",
+      "detected_intent": "scenic_spot",
+      "detected_city": "厦门",
+      "intent_correct": true,
+      "city_correct": true,
+      "latency_ms": 3738.4519577026367,
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,154 @@
+{
+  "summary": {
+    "timestamp": "2026-08-17 21:49:59",
+    "level": "quick",
+    "total_cases": 8,
+    "passed_cases": 0,
+    "failed_cases": 8,
+    "pass_rate": "0.0%",
+    "error_count": 8
+  },
+  "metrics": {
+    "intent_accuracy": "0.0%",
+    "city_extraction_accuracy": "0.0%",
+    "days_extraction_accuracy": "0.0%",
+    "mean_mrr": "0.0%",
+    "recall_at_k": {
+      "@1": "0.0%",
+      "@3": "0.0%",
+      "@5": "0.0%",
+      "@10": "0.0%"
+    },
+    "precision_at_k": {
+      "@1": "0.0%",
+      "@3": "0.0%",
+      "@5": "0.0%",
+      "@10": "0.0%"
+    },
+    "ndcg_at_k": {
+      "@1": "0.0%",
+      "@3": "0.0%",
+      "@5": "0.0%",
+      "@10": "0.0%"
+    },
+    "latency": {
+      "avg_ms": "0",
+      "p50_ms": "0",
+      "p95_ms": "0",
+      "p99_ms": "0",
+      "min_ms": "0",
+      "max_ms": "0"
+    },
+    "stages_breakdown": {}
+  },
+  "category_stats": {
+    "通用查询": {
+      "total": 8,
+      "passed": 0,
+      "failed": 8
+    }
+  },
+  "difficulty_stats": {
+    "medium": {
+      "total": 8,
+      "passed": 0,
+      "failed": 8
+    }
+  },
+  "priority_stats": {
+    "P1": {
+      "total": 8,
+      "passed": 0,
+      "failed": 8
+    }
+  },
+  "recommendations": [
+    "意图识别准确率较低 (0.0%)，建议优化 IntentDetector 的 prompt 或增加训练数据",
+    "城市提取准确率较低 (0.0%)，建议扩充城市名称词库",
+    "Recall@5 较低 (0.0%)，建议优化向量检索参数或调整分块策略",
+    "MRR 较低 (0.0%)，建议优化 Rerank 模型或调整融合权重",
+    "有 8 个用例执行出错，建议检查系统稳定性和错误处理"
+  ],
+  "failed_cases": [
+    {
+      "case_id": "base_001",
+      "query": "北京三天怎么玩？",
+      "detected_intent": null,
+      "detected_city": null,
+      "intent_correct": false,
+      "city_correct": false,
+      "latency_ms": 0.0,
+      "error": "'Retriever' object has no attribute 'retriever'"
+    },
+    {
+      "case_id": "base_002",
+      "query": "大理玩两天，有什么推荐",
+      "detected_intent": null,
+      "detected_city": null,
+      "intent_correct": false,
+      "city_correct": false,
+      "latency_ms": 0.0,
+      "error": "'Retriever' object has no attribute 'retriever'"
+    },
+    {
+      "case_id": "base_003",
+      "query": "去厦门五日游怎么安排",
+      "detected_intent": null,
+      "detected_city": null,
+      "intent_correct": false,
+      "city_correct": false,
+      "latency_ms": 0.0,
+      "error": "'Retriever' object has no attribute 'retriever'"
+    },
+    {
+      "case_id": "base_004",
+      "query": "西安四天三晚行程",
+      "detected_intent": null,
+      "detected_city": null,
+      "intent_correct": false,
+      "city_correct": false,
+      "latency_ms": 0.0,
+      "error": "'Retriever' object has no attribute 'retriever'"
+    },
+    {
+      "case_id": "base_005",
+      "query": "成都必去的景点有哪些？",
+      "detected_intent": null,
+      "detected_city": null,
+      "intent_correct": false,
+      "city_correct": false,
+      "latency_ms": 0.0,
+      "error": "'Retriever' object has no attribute 'retriever'"
+    },
+    {
+      "case_id": "base_006",
+      "query": "西安有什么打卡的地方",
+      "detected_intent": null,
+      "detected_city": null,
+      "intent_correct": false,
+      "city_correct": false,
+      "latency_ms": 0.0,
+      "error": "'Retriever' object has no attribute 'retriever'"
+    },
+    {
+      "case_id": "base_007",
+      "query": "大理好玩的景点推荐",
+      "detected_intent": null,
+      "detected_city": null,
+      "intent_correct": false,
+      "city_correct": false,
+      "latency_ms": 0.0,
+      "error": "'Retriever' object has no attribute 'retriever'"
+    },
+    {
+      "case_id": "base_008",
+      "query": "厦门哪些景点值得去",
+      "detected_intent": null,
+      "detected_city": null,
+      "intent_correct": false,
+      "city_correct": false,
+      "latency_ms": 0.0,
+      "error": "'Retriever' object has no attribute 'retriever'"
+    }
+  ]
+}
