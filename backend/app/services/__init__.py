@@ -54,18 +54,47 @@ from .weather_service import (
     batch_get_weather,
     get_trip_weather,
 )
-from .export_service import (
-    ExportService,
-    ExportFormat,
-    ExportOptions,
-    ExportRequest,
-    ExportResponse,
-    ExportFileMetadata,
-    ExportError,
-    TripNotFoundError,
-    UnsupportedFormatError,
-    FileWriteError,
-    export_service,
+try:
+    from .export_service import (
+        ExportService,
+        ExportFormat,
+        ExportOptions,
+        ExportRequest,
+        ExportResponse,
+        ExportFileMetadata,
+        ExportError,
+        TripNotFoundError,
+        UnsupportedFormatError,
+        FileWriteError,
+        export_service,
+    )
+except ModuleNotFoundError:  # 可选依赖（如 weasyprint）缺失时不影响其它服务导入
+    ExportService = None  # type: ignore[misc, assignment]
+    ExportFormat = None  # type: ignore[misc, assignment]
+    ExportOptions = None  # type: ignore[misc, assignment]
+    ExportRequest = None  # type: ignore[misc, assignment]
+    ExportResponse = None  # type: ignore[misc, assignment]
+    ExportFileMetadata = None  # type: ignore[misc, assignment]
+    ExportError = None  # type: ignore[misc, assignment]
+    TripNotFoundError = None  # type: ignore[misc, assignment]
+    UnsupportedFormatError = None  # type: ignore[misc, assignment]
+    FileWriteError = None  # type: ignore[misc, assignment]
+    export_service = None  # type: ignore[misc, assignment]
+
+from .place_candidate_service import (
+    CandidateEmptyError,
+    CandidateError,
+    CandidateFetchError,
+    CandidatePlace,
+    CandidatePool,
+    PlaceCandidateConfig,
+    PlaceCandidateService,
+    QueryPlan,
+    SearchMode,
+    SearchTask,
+    build_query_plan,
+    filter_and_rank,
+    place_candidate_service,
 )
 
 __all__ = [
@@ -130,4 +159,18 @@ __all__ = [
     "UnsupportedFormatError",
     "FileWriteError",
     "export_service",
+    # Place Candidate
+    "CandidateEmptyError",
+    "CandidateError",
+    "CandidateFetchError",
+    "CandidatePlace",
+    "CandidatePool",
+    "PlaceCandidateConfig",
+    "PlaceCandidateService",
+    "QueryPlan",
+    "SearchMode",
+    "SearchTask",
+    "build_query_plan",
+    "filter_and_rank",
+    "place_candidate_service",
 ]

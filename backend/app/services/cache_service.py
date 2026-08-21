@@ -623,6 +623,8 @@ class CacheNamespace:
     CITY = "city"
     # 地图数据
     MAP = "map"
+    # POI 候选池
+    PLACE = "place"
     # 天气数据
     WEATHER = "weather"
     # 用户会话
