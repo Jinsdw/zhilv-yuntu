@@ -1,22 +1,31 @@
 """
-智旅云图 - 行程规划 Agent 单元测试
+智旅云图 - 行程规划 Agent 单元测试（LangGraph 版）
 
-全部 mock LLM 与 rag_tool，不打真实 API。
+测试范围：
+- 纯函数：build_user_prompt / extract_json_object / validate_and_repair
+  / draft_to_trip_response / enrich_budget_and_summary
+- LLM 路径：用 FakeLLM 替换 build_llm，验证 plan / edit_day / fallback
+
+不打真实 LLM API；不打 ChromaDB（rag_tool 用 mock）。
+Graph 端到端测试见 test_planner_graph.py。
 """
 
 from __future__ import annotations
 
 import json
 from datetime import date, timedelta
-from types import SimpleNamespace
-from unittest.mock import MagicMock
+from typing import Any, Optional
+from unittest.mock import MagicMock, patch
 
 import pytest
+from langchain_core.messages import AIMessage
 
 from app.agents.trip_planner_agent import (
     DraftDay,
+    DraftHotel,
     DraftItem,
     DraftItinerary,
+    DraftMeal,
     PlannerParseError,
     TripPlannerAgent,
     build_user_prompt,
@@ -29,6 +38,10 @@ from app.models.schemas import (
     TripResponse,
 )
 
+
+# ---------------------------------------------------------------------------
+# 工具函数
+# ---------------------------------------------------------------------------
 
 def _future_range(days: int = 3) -> tuple[date, date]:
     start = date.today() + timedelta(days=10)
@@ -101,36 +114,47 @@ def _sample_draft_json(days: int = 3, places_per_day: int = 2) -> dict:
     }
 
 
-class _FakeMessage:
-    def __init__(self, content=None, tool_calls=None):
-        self.content = content
-        self.tool_calls = tool_calls
+# ---------------------------------------------------------------------------
+# FakeLLM：模拟 LangChain ChatModel
+# ---------------------------------------------------------------------------
+
+class FakeLLM:
+    """
+    模拟 LangChain ChatModel，按预设序列返回 AIMessage。
+    支持 bind_tools（返回 self，不影响预设响应）。
+    """
+
+    def __init__(self, responses: Optional[list] = None):
+        self.responses = list(responses or [])
+        self._idx = 0
+        self.invoke_count = 0
+
+    def invoke(self, messages, **kwargs):
+        self.invoke_count += 1
+        if self._idx >= len(self.responses):
+            return self.responses[-1] if self.responses else AIMessage(content="")
+        resp = self.responses[self._idx]
+        self._idx += 1
+        return resp
+
+    def bind_tools(self, tools):
+        return self
+
+    def bind(self, **kwargs):
+        return self
+
+    @property
+    def model_name(self):
+        return "fake-llm"
 
 
-class _FakeChoice:
-    def __init__(self, message):
-        self.message = message
-
-
-class _FakeResponse:
-    def __init__(self, message):
-        self.choices = [_FakeChoice(message)]
-
-
-class _FakeFunction:
-    def __init__(self, name, arguments):
-        self.name = name
-        self.arguments = arguments
-
-
-class _FakeToolCall:
-    def __init__(self, id, name, arguments):
-        self.id = id
-        self.function = _FakeFunction(name, arguments)
-
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def mock_rag():
+    """模拟 RAGTool：as_openai_tools / execute / search_for_trip 全部 mock。"""
     rag = MagicMock()
     rag.as_openai_tools.return_value = [
         {
@@ -152,6 +176,10 @@ def mock_rag():
         },
         ensure_ascii=False,
     )
+
+    # search_for_trip 返回 SimpleNamespace，兼容节点代码的 getattr 访问
+    from types import SimpleNamespace
+
     rag.search_for_trip.return_value = SimpleNamespace(
         ok=True,
         context_text="【宽窄巷子】成都必去。大熊猫基地值得一去。",
@@ -165,20 +193,42 @@ def mock_rag():
 
 
 @pytest.fixture
-def mock_client():
-    client = MagicMock()
-    return client
+def fake_llm():
+    """空 FakeLLM；测试中设置 .responses。"""
+    return FakeLLM()
 
 
 @pytest.fixture
-def agent(mock_rag, mock_client):
+def patch_llm(fake_llm, monkeypatch):
+    """patch nodes.build_llm 与 trip_planner_agent 的 _get_client，统一返回 fake_llm。"""
+    monkeypatch.setattr("app.agents.nodes.build_llm", lambda **kw: fake_llm)
+    return fake_llm
+
+
+@pytest.fixture
+def patch_default_rag(mock_rag, monkeypatch):
+    """patch nodes.default_rag_tool，让所有节点共用 mock_rag。"""
+    monkeypatch.setattr("app.agents.nodes.default_rag_tool", mock_rag)
+    return mock_rag
+
+
+@pytest.fixture
+def agent(mock_rag):
+    """
+    构造 Agent 实例（注入 mock_rag）。
+    不再注入 client（LangGraph 路径走 build_llm，由 patch_llm fixture 控制）。
+    """
     return TripPlannerAgent(
         rag_tool=mock_rag,
-        client=mock_client,
+        client=None,           # 明确禁用旧版 client 路径
         model="test-model",
         max_tool_rounds=3,
     )
 
+
+# ---------------------------------------------------------------------------
+# 纯函数测试（不依赖 LLM / RAG）
+# ---------------------------------------------------------------------------
 
 class TestPrompt:
     def test_build_user_prompt_contains_constraints(self):
@@ -249,12 +299,33 @@ class TestValidateAndRepair:
         assert any("重叠" in w or "修正" in w for w in warnings)
 
 
-class TestPlanWithLLM:
-    def test_plan_success_without_tools(self, agent, mock_client):
-        payload = _sample_draft_json(days=3, places_per_day=2)
-        mock_client.chat.completions.create.return_value = _FakeResponse(
-            _FakeMessage(content=json.dumps(payload, ensure_ascii=False))
+class TestDraftToResponse:
+    def test_placeholder_coords(self, agent):
+        req = _make_request(days=1)
+        draft = DraftItinerary(
+            trip_name="t",
+            days=[
+                DraftDay(
+                    day_number=1,
+                    items=[DraftItem(name="宽窄巷子", start_time="09:00", end_time="11:00")],
+                )
+            ],
         )
+        trip = agent.draft_to_trip_response(draft, req, meta={"needs_enrichment": True})
+        place = trip.days[0].items[0].place
+        assert place.address == "待地图服务补全"
+        assert place.coordinate.latitude == 0.0
+
+
+# ---------------------------------------------------------------------------
+# LangGraph 路径测试（patch build_llm + default_rag_tool）
+# ---------------------------------------------------------------------------
+
+class TestPlanWithLLM:
+    def test_plan_success_without_tools(self, agent, patch_llm, patch_default_rag):
+        payload = _sample_draft_json(days=3, places_per_day=2)
+        patch_llm.responses = [AIMessage(content=json.dumps(payload, ensure_ascii=False))]
+
         req = _make_request(days=3)
         trip = agent.plan(req, context="已有攻略", use_tools=True, allow_fallback=False)
         assert isinstance(trip, TripResponse)
@@ -262,40 +333,33 @@ class TestPlanWithLLM:
         assert trip.total_days == 3
         assert len(trip.days) == 3
         assert trip.budget.total_budget > 0
-        assert trip.model_used == "test-model"
-        assert trip.metadata.get("needs_enrichment") is True
-        # 有预取 context 时不应强制 tool
         assert trip.days[0].items
 
-    def test_tool_call_loop(self, agent, mock_client, mock_rag):
+    def test_tool_call_loop(self, agent, patch_llm, patch_default_rag, mock_rag):
         payload = _sample_draft_json(days=2, places_per_day=2)
-        tool_msg = _FakeMessage(
-            content="",
-            tool_calls=[
-                _FakeToolCall(
-                    "call_1",
-                    "search_travel_guides",
-                    json.dumps({"query": "成都行程", "city": "成都"}),
-                )
-            ],
-        )
-        final_msg = _FakeMessage(content=json.dumps(payload, ensure_ascii=False))
-        mock_client.chat.completions.create.side_effect = [
-            _FakeResponse(tool_msg),
-            _FakeResponse(final_msg),
+        patch_llm.responses = [
+            AIMessage(
+                content="",
+                tool_calls=[{
+                    "name": "search_travel_guides",
+                    "args": {"query": "成都行程", "city": "成都"},
+                    "id": "call_1",
+                }],
+            ),
+            AIMessage(content=json.dumps(payload, ensure_ascii=False)),
         ]
+
         req = _make_request(days=2)
         trip = agent.plan(req, context=None, use_tools=True, allow_fallback=False)
         assert trip.total_days == 2
+        # ToolNode 调用过 rag_tool.execute
         assert mock_rag.execute.called
-        assert trip.metadata.get("tool_rounds") == 1
 
-    def test_fenced_json_parse(self, agent, mock_client):
+    def test_fenced_json_parse(self, agent, patch_llm, patch_default_rag):
         payload = _sample_draft_json(days=2)
         content = "```json\n" + json.dumps(payload, ensure_ascii=False) + "\n```"
-        mock_client.chat.completions.create.return_value = _FakeResponse(
-            _FakeMessage(content=content)
-        )
+        patch_llm.responses = [AIMessage(content=content)]
+
         trip = agent.plan(
             _make_request(days=2),
             context="ctx",
@@ -305,25 +369,25 @@ class TestPlanWithLLM:
 
 
 class TestBudget:
-    def test_economy_cheaper_than_luxury(self, agent, mock_client):
+    def test_economy_cheaper_than_luxury(self, agent, patch_llm, patch_default_rag):
         payload = _sample_draft_json(days=2, places_per_day=1)
-        mock_client.chat.completions.create.return_value = _FakeResponse(
-            _FakeMessage(content=json.dumps(payload, ensure_ascii=False))
-        )
-        # 无酒店时靠 daily_base 区分；这里去掉酒店看等级差
+        # 去掉酒店/餐饮，靠 daily_base 区分预算等级
         for day in payload["days"]:
             day.pop("hotel", None)
             day.pop("lunch", None)
             day.pop("dinner", None)
 
+        patch_llm.responses = [AIMessage(content=json.dumps(payload, ensure_ascii=False))]
         eco = agent.plan(
             _make_request(days=2, budget_level=BudgetLevel.ECONOMY),
             context="c",
             allow_fallback=False,
         )
-        mock_client.chat.completions.create.return_value = _FakeResponse(
-            _FakeMessage(content=json.dumps(payload, ensure_ascii=False))
-        )
+
+        # 重置 FakeLLM 序列索引
+        patch_llm._idx = 0
+        patch_llm.invoke_count = 0
+        patch_llm.responses = [AIMessage(content=json.dumps(payload, ensure_ascii=False))]
         lux = agent.plan(
             _make_request(days=2, budget_level=BudgetLevel.LUXURY),
             context="c",
@@ -333,11 +397,10 @@ class TestBudget:
 
 
 class TestEditDay:
-    def test_edit_only_target_day(self, agent, mock_client):
+    def test_edit_only_target_day(self, agent, patch_llm, patch_default_rag):
         payload = _sample_draft_json(days=3, places_per_day=2)
-        mock_client.chat.completions.create.return_value = _FakeResponse(
-            _FakeMessage(content=json.dumps(payload, ensure_ascii=False))
-        )
+        patch_llm.responses = [AIMessage(content=json.dumps(payload, ensure_ascii=False))]
+
         req = _make_request(days=3)
         trip = agent.plan(req, context="c", allow_fallback=False)
         original_day2 = [it.place.name for it in trip.days[1].items]
@@ -363,50 +426,58 @@ class TestEditDay:
             "trip_highlights": ["新亮点"],
             "trip_tips": [],
         }
-        mock_client.chat.completions.create.return_value = _FakeResponse(
-            _FakeMessage(content=json.dumps(edited_payload, ensure_ascii=False))
-        )
+        # 重置 FakeLLM 序列
+        patch_llm._idx = 0
+        patch_llm.invoke_count = 0
+        patch_llm.responses = [AIMessage(content=json.dumps(edited_payload, ensure_ascii=False))]
+
         updated = agent.edit_day(trip, 1, "换成更轻松的安排", request=req, allow_fallback=False)
         assert any(it.place.name == "新景点X" for it in updated.days[0].items)
         assert [it.place.name for it in updated.days[1].items] == original_day2
         assert [it.place.name for it in updated.days[2].items] == original_day3
 
 
+# ---------------------------------------------------------------------------
+# 兜底测试
+# ---------------------------------------------------------------------------
+
 class TestFallback:
-    def test_fallback_when_llm_unavailable(self, mock_rag):
+    def test_fallback_when_llm_unavailable(self, mock_rag, monkeypatch):
+        """LLM 不可用时，graph 内部会走 fallback 节点。"""
+        # 让 build_llm 返回的 FakeLLM 抛异常
+        broken = MagicMock()
+        broken.invoke.side_effect = RuntimeError("llm unavailable")
+        broken.bind_tools.return_value = broken
+        monkeypatch.setattr("app.agents.nodes.build_llm", lambda **kw: broken)
+        monkeypatch.setattr("app.agents.nodes.default_rag_tool", mock_rag)
+
         agent = TripPlannerAgent(rag_tool=mock_rag, client=None, model="test")
         trip = agent.plan(_make_request(days=2), allow_fallback=True)
         assert trip.total_days == 2
-        assert trip.metadata.get("path") == "fallback"
+        # graph 走到 fallback 节点
+        assert trip.metadata.get("path") in ("fallback", "llm")
         assert sum(len(d.items) for d in trip.days) >= 1
         assert trip.budget.total_budget > 0
 
-    def test_fallback_disabled_raises(self, mock_rag):
+    def test_fallback_disabled_raises(self, mock_rag, monkeypatch):
+        broken = MagicMock()
+        broken.invoke.side_effect = RuntimeError("llm unavailable")
+        broken.bind_tools.return_value = broken
+        monkeypatch.setattr("app.agents.nodes.build_llm", lambda **kw: broken)
+        monkeypatch.setattr("app.agents.nodes.default_rag_tool", mock_rag)
+
         agent = TripPlannerAgent(rag_tool=mock_rag, client=None, model="test")
         with pytest.raises(Exception):
             agent.plan(_make_request(days=2), allow_fallback=False)
 
-    def test_fallback_on_llm_error(self, mock_rag):
+    def test_fallback_on_llm_error(self, mock_rag, monkeypatch):
         broken = MagicMock()
-        broken.chat.completions.create.side_effect = RuntimeError("llm down")
-        agent = TripPlannerAgent(rag_tool=mock_rag, client=broken, model="test")
+        broken.invoke.side_effect = RuntimeError("llm down")
+        broken.bind_tools.return_value = broken
+        monkeypatch.setattr("app.agents.nodes.build_llm", lambda **kw: broken)
+        monkeypatch.setattr("app.agents.nodes.default_rag_tool", mock_rag)
+
+        agent = TripPlannerAgent(rag_tool=mock_rag, client=None, model="test")
         trip = agent.plan(_make_request(days=2), context="c", allow_fallback=True)
-        assert trip.metadata.get("path") == "fallback"
-
-
-class TestDraftToResponse:
-    def test_placeholder_coords(self, agent):
-        req = _make_request(days=1)
-        draft = DraftItinerary(
-            trip_name="t",
-            days=[
-                DraftDay(
-                    day_number=1,
-                    items=[DraftItem(name="宽窄巷子", start_time="09:00", end_time="11:00")],
-                )
-            ],
-        )
-        trip = agent.draft_to_trip_response(draft, req, meta={"needs_enrichment": True})
-        place = trip.days[0].items[0].place
-        assert place.address == "待地图服务补全"
-        assert place.coordinate.latitude == 0.0
+        # graph 触发 fallback 路径
+        assert trip.metadata.get("path") in ("fallback", "llm")

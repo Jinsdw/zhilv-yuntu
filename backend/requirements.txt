@@ -10,10 +10,11 @@ pydantic-settings>=2.2.0
 sqlalchemy>=2.0.0
 aiosqlite>=0.19.0
 
-# LLM & RAG
-langchain>=0.2.0
-langchain-community>=0.2.0
-langchain-core>=0.2.0
+# LLM & RAG（LangGraph 工作流框架）
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
 chromadb>=0.5.0
 sentence-transformers>=2.5.0
 flagembedding>=1.2.0

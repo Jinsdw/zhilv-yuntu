@@ -1,17 +1,20 @@
 """
-智旅云图 - 行程规划 Agent
+智旅云图 - 行程规划 Agent（LangGraph 实现）
 
 将 TripRequest 转为可校验的 TripResponse 草案。
+控制流由 LangGraph StateGraph 接管（见 planner_graph.py / nodes.py）。
 检索走 rag_tool；真实坐标/路线/天气留给后续编排。
 
-功能模块：
-- 5.2.1 Agent 骨架：类、配置、异常、plan() 入口
-- 5.2.2 Prompt：system / user 模板
-- 5.2.3 Tool 循环：挂载 RAG + function calling
-- 5.2.4 结构化解析：LLM JSON → Draft → TripResponse
-- 5.2.5 约束校验与自动修复
-- 5.2.6 预算估算与摘要补全
-- 5.2.7 智能编辑 edit_day + 降级路径
+模块组织：
+- 常量 / 异常 / Draft Schema（与第五阶段保持一致）
+- Prompt 与 JSON 抽取工具函数
+- TripPlannerAgent：薄壳入口，编译并调用 LangGraph
+  - plan(): 主图
+  - edit_day(): 单日编辑子图
+- 业务方法（被 nodes.py 通过 TripPlannerAgent.__new__ 复用）：
+  - _repair_json_with_llm / draft_to_trip_response / _draft_day_to_model
+  - validate_and_repair / _sort_and_fix_times
+  - enrich_budget_and_summary / _fallback_plan
 """
 
 from __future__ import annotations
@@ -90,7 +93,7 @@ class PlannerValidationError(PlannerError):
 
 
 # ---------------------------------------------------------------------------
-# 5.2.4 草案 Schema（比 TripResponse 松）
+# 草案 Schema（比 TripResponse 松）
 # ---------------------------------------------------------------------------
 
 class DraftItem(BaseModel):
@@ -154,7 +157,7 @@ class DraftItinerary(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 5.2.2 Prompt
+# Prompt
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约束与攻略资料，生成可执行的多日行程。
@@ -226,7 +229,7 @@ def build_user_prompt(
     candidate_places: Optional[list[Any]] = None,
     extra_instruction: Optional[str] = None,
 ) -> str:
-    """5.2.2 将 TripRequest 渲染为 user 消息。"""
+    """将 TripRequest 渲染为 user 消息。"""
     days = (request.end_date - request.start_date).days + 1
     lines = [
         f"目的地：{request.destination}",
@@ -314,15 +317,26 @@ def _parse_time_minutes(t: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# TripPlannerAgent
+# TripPlannerAgent（LangGraph 薄壳）
+#
+# 自第五阶段起，控制流迁移至 LangGraph StateGraph（见 planner_graph.py）。
+# 本类保留为对外兼容入口：plan() / edit_day() 签名与返回值不变，
+# 内部编译并调用 graph。
+#
+# 业务纯函数（validate_and_repair / draft_to_trip_response
+# / enrich_budget_and_summary / _fallback_plan / _repair_json_with_llm
+# / _sort_and_fix_times / _draft_day_to_model）作为本类的实例方法保留，
+# 供 nodes.py 通过 TripPlannerAgent.__new__(TripPlannerAgent) 最小实例化复用。
 # ---------------------------------------------------------------------------
 
 class TripPlannerAgent:
     """
-    行程规划 Agent。
+    行程规划 Agent（LangGraph 实现）。
 
-    - plan(): TripRequest → TripResponse
-    - edit_day(): 单日智能调整
+    - plan(): TripRequest → TripResponse（走主图）
+    - edit_day(): 单日智能调整（走单日编辑子图）
+
+    内部使用 langgraph StateGraph；外部接口与第五阶段命令式实现保持一致。
     """
 
     def __init__(
@@ -335,8 +349,8 @@ class TripPlannerAgent:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
     ):
+        # 兼容旧字段：仍允许外部注入 rag_tool / client
         self._rag_tool = rag_tool
-        # client=_UNSET → 懒加载；client=None → 明确禁用 LLM
         self._auto_client = client is _UNSET
         self._client = None if client is _UNSET else client
         self.model = model or settings.ZHIPU_MODEL
@@ -344,7 +358,11 @@ class TripPlannerAgent:
         self.max_tokens = max_tokens
         self.max_tool_rounds = max(1, int(max_tool_rounds))
 
-    # ---------- 依赖 ----------
+        # 已编译图（懒加载，首次 plan/edit_day 时构造）
+        self._planner_graph = None
+        self._edit_day_graph = None
+
+    # ---------- 图懒加载 ----------
 
     @property
     def rag_tool(self) -> Any:
@@ -357,22 +375,47 @@ class TripPlannerAgent:
     @rag_tool.setter
     def rag_tool(self, value: Any) -> None:
         self._rag_tool = value
+        # 注入新 rag_tool 时重置已编译图
+        self._planner_graph = None
+        self._edit_day_graph = None
+
+    def _get_planner_graph(self):
+        if self._planner_graph is None:
+            from app.agents.planner_graph import build_planner_graph
+
+            # 用注入的 rag_tool 构造图（测试时可注入 mock）
+            self._planner_graph = build_planner_graph(
+                rag_tool=self._rag_tool if self._rag_tool is not None else None
+            )
+        return self._planner_graph
+
+    def _get_edit_day_graph(self):
+        if self._edit_day_graph is None:
+            from app.agents.planner_graph import build_edit_day_graph
+
+            self._edit_day_graph = build_edit_day_graph(
+                rag_tool=self._rag_tool if self._rag_tool is not None else None
+            )
+        return self._edit_day_graph
+
+    # ---------- LLM 客户端（仅供 _repair_json_with_llm 等老路径复用） ----------
 
     def _get_client(self) -> Any:
+        """返回 LLM 客户端；LangGraph 主路径不使用此方法（走 llm_factory.build_llm）。"""
         if not self._auto_client:
             return self._client
         if self._client is not None:
             return self._client
         try:
-            from zai import ZhipuAiClient
+            from app.agents.llm_factory import build_llm
 
-            self._client = ZhipuAiClient(api_key=settings.ZHIPU_API_KEY)
+            self._client = build_llm()
             return self._client
-        except ImportError:
-            logger.warning("zai 未安装，行程规划将无法调用真实 LLM")
+        except Exception as e:
+            logger.warning(f"LangChain LLM 构造失败: {e}")
             return None
 
-    # ---------- 5.2.1 入口 ----------
+    # ---------- 主入口 ----------
 
     def plan(
         self,
@@ -383,7 +426,11 @@ class TripPlannerAgent:
         use_tools: bool = True,
         allow_fallback: bool = True,
     ) -> TripResponse:
-        """生成行程草案。"""
+        """
+        生成行程草案。内部走 LangGraph 主图。
+
+        对外签名与第五阶段完全一致；返回值仍为 TripResponse。
+        """
         start = time.time()
         meta: dict[str, Any] = {
             "tool_rounds": 0,
@@ -391,31 +438,45 @@ class TripPlannerAgent:
             "validation_warnings": [],
             "path": "llm",
             "needs_enrichment": True,
+            "model_used": self.model,
         }
-        rag_context = context
-        if rag_context is None and not use_tools:
-            rag_context = self._prefetch_context(request, meta)
+
+        state: dict = {
+            "request": request,
+            "context": context,
+            "candidate_places": candidate_places,
+            "use_tools": use_tools,
+            "allow_fallback": allow_fallback,
+            "meta": meta,
+            "messages": [],
+            "validation_warnings": [],
+            "repair_attempts": 0,
+        }
 
         try:
-            raw_text, meta = self._run_llm_plan(
-                request,
-                context=rag_context,
-                candidate_places=candidate_places,
-                use_tools=use_tools,
-                meta=meta,
-            )
-            draft = self._parse_draft(raw_text, request, meta)
-            draft, warnings = self.validate_and_repair(draft, request)
-            meta["validation_warnings"] = warnings
-            trip = self.draft_to_trip_response(draft, request, meta=meta, started_at=start)
-            return self.enrich_budget_and_summary(trip, request, draft)
+            graph = self._get_planner_graph()
+            final_state = graph.invoke(state, {"recursion_limit": 24})
         except Exception as e:
-            logger.error(f"行程规划 LLM 路径失败: {e}")
+            logger.error(f"LangGraph 主图执行失败: {e}")
             if not allow_fallback:
-                raise
+                raise PlannerError(f"graph 执行失败: {e}") from e
             meta["path"] = "fallback"
-            meta["fallback_reason"] = str(e)
+            meta["fallback_reason"] = f"graph_crash: {e}"
             return self._fallback_plan(request, meta=meta, started_at=start)
+
+        trip = final_state.get("trip")
+        if trip is None:
+            err = final_state.get("error", "graph produced no trip")
+            if not allow_fallback:
+                raise PlannerError(err)
+            meta["path"] = "fallback"
+            meta["fallback_reason"] = err
+            return self._fallback_plan(request, meta=meta, started_at=start)
+
+        # 把最终 meta 回填到 trip.metadata
+        final_meta = final_state.get("meta", meta)
+        final_meta.setdefault("generation_time", round(time.time() - start, 3))
+        return trip.model_copy(update={"metadata": final_meta})
 
     def edit_day(
         self,
@@ -427,44 +488,11 @@ class TripPlannerAgent:
         context: Optional[str] = None,
         allow_fallback: bool = True,
     ) -> TripResponse:
-        """5.2.7 仅调整指定日，合并回原行程。"""
-        start = time.time()
+        """单日智能调整。内部走 LangGraph 单日编辑子图。"""
         if day_number < 1 or day_number > len(trip.days):
             raise PlannerValidationError(f"无效 day_number: {day_number}")
 
-        req = request or TripRequest(
-            destination=trip.destination,
-            start_date=trip.start_date,
-            end_date=trip.end_date,
-            travelers=1,
-        )
-        target = trip.days[day_number - 1]
-        other_names = [
-            it.place.name
-            for d in trip.days
-            if d.day_number != day_number
-            for it in d.items
-        ]
-        day_dump = {
-            "day_number": target.day_number,
-            "day_theme": target.day_theme,
-            "items": [
-                {
-                    "start_time": it.start_time,
-                    "end_time": it.end_time,
-                    "name": it.place.name,
-                    "category": it.place.category,
-                    "activity": it.activity,
-                    "tips": it.tips,
-                }
-                for it in target.items
-            ],
-        }
-        extra = (
-            f"只改写第 {day_number} 天。要求：{instruction}。"
-            f"其他日地点勿重复占用：{', '.join(other_names[:20])}。"
-            f"当前该日：{json.dumps(day_dump, ensure_ascii=False)}"
-        )
+        req = request or self._derive_request_from_trip(trip)
         meta: dict[str, Any] = {
             "tool_rounds": 0,
             "rag_degraded": False,
@@ -472,76 +500,30 @@ class TripPlannerAgent:
             "path": "edit_day",
             "needs_enrichment": True,
             "edited_day": day_number,
+            "model_used": self.model,
         }
-        try:
-            user = build_user_prompt(
-                req,
-                context=context,
-                extra_instruction=extra,
-            )
-            user += (
-                "\n请只输出包含单日的 JSON："
-                '{"days":[{...单日...}],"trip_highlights":[],"trip_tips":[]}'
-            )
-            raw_text, meta = self._chat_with_tools(
-                user_content=user,
-                use_tools=bool(context is None),
-                meta=meta,
-                force_json_final=True,
-            )
-            data = extract_json_object(raw_text)
-            draft = DraftItinerary.model_validate(data)
-            if not draft.days:
-                raise PlannerParseError("编辑结果缺少 days")
-            # 取 day_number 匹配或第一天
-            edited = next(
-                (d for d in draft.days if d.day_number == day_number),
-                draft.days[0],
-            )
-            edited.day_number = day_number
-            edited.itinerary_date = target.itinerary_date
-            mini = DraftItinerary(
-                trip_name=trip.trip_name,
-                days=[edited],
-                trip_highlights=draft.trip_highlights or trip.trip_highlights,
-                trip_tips=draft.trip_tips or trip.trip_tips,
-                recommended_foods=draft.recommended_foods or trip.recommended_foods,
-            )
-            # 用「单日请求」做裁剪校验
-            one_day_req = req.model_copy(
-                update={
-                    "start_date": target.itinerary_date,
-                    "end_date": target.itinerary_date,
-                }
-            )
-            mini, warnings = self.validate_and_repair(mini, one_day_req)
-            meta["validation_warnings"] = warnings
-            new_day_trip = self.draft_to_trip_response(
-                mini, one_day_req, meta=meta, started_at=start
-            )
-            new_day = new_day_trip.days[0]
-            new_day.day_number = day_number
-            new_day.itinerary_date = target.itinerary_date
 
-            merged_days = list(trip.days)
-            merged_days[day_number - 1] = new_day
-            updated = trip.model_copy(
-                update={
-                    "days": merged_days,
-                    "trip_highlights": mini.trip_highlights or trip.trip_highlights,
-                    "trip_tips": mini.trip_tips or trip.trip_tips,
-                    "generated_at": datetime.now(),
-                    "generation_time": round(time.time() - start, 3),
-                    "model_used": self.model,
-                    "metadata": {**(trip.metadata or {}), **meta},
-                }
-            )
-            return self.enrich_budget_and_summary(updated, req, mini)
+        state: dict = {
+            "base_trip": trip,
+            "day_number": day_number,
+            "instruction": instruction,
+            "request": req,
+            "context": context,
+            "use_tools": bool(context is None),
+            "allow_fallback": allow_fallback,
+            "meta": meta,
+            "messages": [],
+            "validation_warnings": [],
+            "repair_attempts": 0,
+        }
+
+        try:
+            graph = self._get_edit_day_graph()
+            final_state = graph.invoke(state, {"recursion_limit": 24})
         except Exception as e:
-            logger.error(f"edit_day 失败: {e}")
+            logger.error(f"edit_day graph 执行失败: {e}")
             if not allow_fallback:
-                raise
-            # 失败则原样返回并记录
+                raise PlannerError(f"edit_day graph 失败: {e}") from e
             return trip.model_copy(
                 update={
                     "metadata": {
@@ -552,196 +534,80 @@ class TripPlannerAgent:
                 }
             )
 
-    # ---------- LLM / Tool ----------
-
-    def _prefetch_context(self, request: TripRequest, meta: dict) -> str:
-        try:
-            result = self.rag_tool.search_for_trip(request)
-            meta["rag_degraded"] = bool(
-                getattr(getattr(result, "stats", None), "degraded", False)
-            )
-            return getattr(result, "context_text", "") or ""
-        except Exception as e:
-            logger.warning(f"预取 RAG 失败: {e}")
-            return ""
-
-    def _run_llm_plan(
-        self,
-        request: TripRequest,
-        *,
-        context: Optional[str],
-        candidate_places: Optional[list[Any]],
-        use_tools: bool,
-        meta: dict,
-    ) -> tuple[str, dict]:
-        user = build_user_prompt(
-            request,
-            context=context,
-            candidate_places=candidate_places,
-        )
-        return self._chat_with_tools(
-            user_content=user,
-            use_tools=use_tools and not (context and context.strip()),
-            meta=meta,
-            force_json_final=True,
-        )
-
-    def _chat_with_tools(
-        self,
-        *,
-        user_content: str,
-        use_tools: bool,
-        meta: dict,
-        force_json_final: bool = True,
-    ) -> tuple[str, dict]:
-        """5.2.3 Tool-Call 循环。"""
-        client = self._get_client()
-        if client is None:
-            raise PlannerError("LLM 客户端不可用")
-
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ]
-        tools = self.rag_tool.as_openai_tools() if use_tools else None
-        rounds = 0
-
-        while True:
-            kwargs: dict[str, Any] = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-            }
-            if tools and rounds < self.max_tool_rounds:
-                kwargs["tools"] = tools
-            elif force_json_final:
-                # 最终轮：不再给工具
-                pass
-
-            response = client.chat.completions.create(**kwargs)
-            message = response.choices[0].message
-            tool_calls = getattr(message, "tool_calls", None) or []
-
-            # 兼容 dict / 对象
-            content = getattr(message, "content", None)
-            if content is None and isinstance(message, dict):
-                content = message.get("content")
-                tool_calls = message.get("tool_calls") or tool_calls
-
-            if tool_calls and tools and rounds < self.max_tool_rounds:
-                rounds += 1
-                meta["tool_rounds"] = rounds
-                assistant_msg: dict[str, Any] = {
-                    "role": "assistant",
-                    "content": content or "",
-                    "tool_calls": self._normalize_tool_calls(tool_calls),
+        edited = final_state.get("edited_day")
+        if edited is None:
+            err = final_state.get("error", "edit_day produced no result")
+            if not allow_fallback:
+                raise PlannerError(err)
+            return trip.model_copy(
+                update={
+                    "metadata": {
+                        **(trip.metadata or {}),
+                        "edit_failed": True,
+                        "edit_error": err,
+                    }
                 }
-                messages.append(assistant_msg)
-                for tc in assistant_msg["tool_calls"]:
-                    fn = tc.get("function") or {}
-                    name = fn.get("name") or ""
-                    arguments = fn.get("arguments") or "{}"
-                    payload = self.rag_tool.execute(name, arguments)
-                    try:
-                        parsed = json.loads(payload)
-                        if parsed.get("stats", {}).get("degraded"):
-                            meta["rag_degraded"] = True
-                        ctx = parsed.get("context_text") or ""
-                        if ctx:
-                            meta.setdefault("last_rag_context", ctx)
-                    except Exception:
-                        pass
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.get("id") or f"call_{rounds}",
-                            "content": payload,
-                        }
-                    )
-                continue
-
-            text = (content or "").strip()
-            if not text:
-                raise PlannerParseError("模型未返回行程文本")
-            meta["tool_rounds"] = rounds
-            return text, meta
+            )
+        return edited
 
     @staticmethod
-    def _normalize_tool_calls(tool_calls: Any) -> list[dict]:
-        normalized = []
-        for i, tc in enumerate(tool_calls):
-            if isinstance(tc, dict):
-                fn = tc.get("function") or {}
-                normalized.append(
-                    {
-                        "id": tc.get("id") or f"call_{i}",
-                        "type": "function",
-                        "function": {
-                            "name": fn.get("name") or "",
-                            "arguments": fn.get("arguments")
-                            if isinstance(fn.get("arguments"), str)
-                            else json.dumps(fn.get("arguments") or {}, ensure_ascii=False),
-                        },
-                    }
-                )
-                continue
-            fn = getattr(tc, "function", None)
-            args = getattr(fn, "arguments", "{}") if fn else "{}"
-            if not isinstance(args, str):
-                args = json.dumps(args or {}, ensure_ascii=False)
-            normalized.append(
-                {
-                    "id": getattr(tc, "id", None) or f"call_{i}",
-                    "type": "function",
-                    "function": {
-                        "name": getattr(fn, "name", "") if fn else "",
-                        "arguments": args,
-                    },
-                }
-            )
-        return normalized
+    def _derive_request_from_trip(trip: TripResponse) -> TripRequest:
+        """从 TripResponse 反推一个最小可用的 TripRequest（用于 edit_day 的单日裁剪）。"""
+        return TripRequest(
+            destination=trip.destination,
+            start_date=trip.start_date,
+            end_date=trip.end_date,
+            travelers=1,
+        )
 
-    # ---------- 5.2.4 解析 ----------
-
-    def _parse_draft(
-        self,
-        raw_text: str,
-        request: TripRequest,
-        meta: dict,
-    ) -> DraftItinerary:
-        try:
-            data = extract_json_object(raw_text)
-            return DraftItinerary.model_validate(data)
-        except (PlannerParseError, ValidationError) as first_err:
-            logger.warning(f"首次解析失败，尝试修复: {first_err}")
-            fixed = self._repair_json_with_llm(raw_text, str(first_err))
-            if not fixed:
-                raise PlannerParseError(str(first_err)) from first_err
-            data = extract_json_object(fixed)
-            return DraftItinerary.model_validate(data)
+    # ------------------------------------------------------------------
+    # 业务方法：以下函数被 nodes.py 通过 TripPlannerAgent.__new__ 复用。
+    # 保持纯函数性质（不依赖 self 的可变状态，只读取 self.model 等只读字段）。
+    # ------------------------------------------------------------------
 
     def _repair_json_with_llm(self, raw_text: str, error: str) -> Optional[str]:
+        """LLM 修复 JSON。供 nodes.repair_json_node 复用。"""
         client = self._get_client()
         if client is None:
             return None
         try:
-            resp = client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "你只输出合法 JSON 对象，不要解释。修复用户给出的行程 JSON。",
-                    },
-                    {
-                        "role": "user",
-                        "content": f"校验错误：{error}\n\n原始内容：\n{raw_text[:6000]}",
-                    },
-                ],
-                temperature=0.0,
-                max_tokens=self.max_tokens,
-            )
-            return (resp.choices[0].message.content or "").strip()
+            # 兼容 LangChain BaseChatModel 与旧版 zai 客户端
+            if hasattr(client, "chat") and hasattr(client.chat, "completions"):
+                # 旧版 zai 路径
+                resp = client.chat.completions.create(
+                    model=self.model or settings.ZHIPU_MODEL,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "你只输出合法 JSON 对象，不要解释。修复用户给出的行程 JSON。",
+                        },
+                        {
+                            "role": "user",
+                            "content": f"校验错误：{error}\n\n原始内容：\n{raw_text[:6000]}",
+                        },
+                    ],
+                    temperature=0.0,
+                    max_tokens=self.max_tokens,
+                )
+                return (resp.choices[0].message.content or "").strip()
+            else:
+                # LangChain BaseChatModel 路径
+                from langchain_core.messages import HumanMessage, SystemMessage
+
+                resp = client.invoke(
+                    [
+                        SystemMessage(
+                            content="你只输出合法 JSON 对象，不要解释。修复用户给出的行程 JSON。"
+                        ),
+                        HumanMessage(
+                            content=f"校验错误：{error}\n\n原始内容：\n{raw_text[:6000]}"
+                        ),
+                    ],
+                    temperature=0.0,
+                    max_tokens=self.max_tokens,
+                )
+                content = getattr(resp, "content", "") or ""
+                return content.strip()
         except Exception as e:
             logger.warning(f"JSON 修复调用失败: {e}")
             return None
@@ -859,7 +725,7 @@ class TripPlannerAgent:
             hotel=hotel,
         )
 
-    # ---------- 5.2.5 校验 ----------
+    # ---------- 校验 ----------
 
     def validate_and_repair(
         self, draft: DraftItinerary, request: TripRequest
@@ -877,7 +743,6 @@ class TripPlannerAgent:
         for i in range(1, total_days + 1):
             day = by_num.get(i)
             if day is None and draft.days:
-                # 回退按顺序取
                 if i - 1 < len(draft.days):
                     day = draft.days[i - 1].model_copy(deep=True)
                     day.day_number = i
@@ -905,9 +770,7 @@ class TripPlannerAgent:
 
             # 裁剪景点数
             if len(day.items) > max_places:
-                warnings.append(
-                    f"第{i}天景点 {len(day.items)}>{max_places}，已裁剪"
-                )
+                warnings.append(f"第{i}天景点 {len(day.items)}>{max_places}，已裁剪")
                 day.items = day.items[:max_places]
 
             # 时间排序与简单去重叠
@@ -921,7 +784,6 @@ class TripPlannerAgent:
 
         # 硬失败：全部日无任何安排且无餐饮（通常是空模型）
         if total_days > 0 and all(not d.items for d in draft.days):
-            # 不在这里抛错，留给 fallback；但给出 warning
             warnings.append("所有日均无景点安排")
 
         return draft, warnings
@@ -954,7 +816,7 @@ class TripPlannerAgent:
             fixed.append(it)
         return fixed
 
-    # ---------- 5.2.6 预算与摘要 ----------
+    # ---------- 预算与摘要 ----------
 
     def enrich_budget_and_summary(
         self,
@@ -1013,7 +875,6 @@ class TripPlannerAgent:
 
         transport = daily_base * TRANSPORT_SHARE * total_days
         other = daily_base * OTHER_SHARE * total_days
-        # 若完全没有酒店信息，住宿已按日累加
         total = accommodation + food + ticket + transport + other
         budget = BudgetInfo(
             total_budget=round(total, 2),
@@ -1069,7 +930,7 @@ class TripPlannerAgent:
             }
         )
 
-    # ---------- 5.2.7 降级 ----------
+    # ---------- 降级 ----------
 
     def _fallback_plan(
         self,
@@ -1078,7 +939,7 @@ class TripPlannerAgent:
         meta: dict,
         started_at: float,
     ) -> TripResponse:
-        """RAG 片段 + 默认时段模板拼装。"""
+        """RAG 片段 + 默认时段模板拼装。供 nodes.fallback_node 复用。"""
         context = ""
         place_names: list[str] = []
         try:
@@ -1089,13 +950,11 @@ class TripPlannerAgent:
                 getattr(getattr(result, "stats", None), "degraded", False)
             )
             for ch in chunks:
-                # subsection / 从内容抽短名
                 section = getattr(ch, "section", None) or ""
                 content = getattr(ch, "content", "") or ""
                 for cand in (section,):
                     if cand and 1 < len(cand) <= 20 and cand not in place_names:
                         place_names.append(cand)
-                # 简单从「【】」或书名号取名
                 for m in re.finditer(r"[「【]([^」】]{2,12})[」】]", content):
                     name = m.group(1)
                     if name not in place_names:
@@ -1173,5 +1032,48 @@ class TripPlannerAgent:
         return self.enrich_budget_and_summary(trip, request, draft)
 
 
+# ---------------------------------------------------------------------------
+# 兼容旧代码：tool_calls 规范化函数（保留供测试或外部代码兼容使用）
+# ---------------------------------------------------------------------------
+
+def _normalize_tool_calls(tool_calls: Any) -> list[dict]:
+    """旧版 tool_calls 规范化函数；保留供测试兼容使用。新路径走 LangGraph ToolNode。"""
+    normalized = []
+    for i, tc in enumerate(tool_calls):
+        if isinstance(tc, dict):
+            fn = tc.get("function") or {}
+            normalized.append(
+                {
+                    "id": tc.get("id") or f"call_{i}",
+                    "type": "function",
+                    "function": {
+                        "name": fn.get("name") or "",
+                        "arguments": fn.get("arguments")
+                        if isinstance(fn.get("arguments"), str)
+                        else json.dumps(fn.get("arguments") or {}, ensure_ascii=False),
+                    },
+                }
+            )
+            continue
+        fn = getattr(tc, "function", None)
+        args = getattr(fn, "arguments", "{}") if fn else "{}"
+        if not isinstance(args, str):
+            args = json.dumps(args or {}, ensure_ascii=False)
+        normalized.append(
+            {
+                "id": getattr(tc, "id", None) or f"call_{i}",
+                "type": "function",
+                "function": {
+                    "name": getattr(fn, "name", "") if fn else "",
+                    "arguments": args,
+                },
+            }
+        )
+    return normalized
+
+
+# ---------------------------------------------------------------------------
 # 模块级单例
+# ---------------------------------------------------------------------------
+
 trip_planner_agent = TripPlannerAgent()
