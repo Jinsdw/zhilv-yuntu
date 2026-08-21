@@ -96,6 +96,15 @@ from .place_candidate_service import (
     filter_and_rank,
     place_candidate_service,
 )
+from .trip_service import (
+    PRESET_CITIES,
+    CityNotSupportedError,
+    TripNotFoundError,
+    TripService,
+    TripServiceError,
+    is_preset_city,
+    trip_service,
+)
 
 __all__ = [
     # Cache
@@ -173,4 +182,12 @@ __all__ = [
     "build_query_plan",
     "filter_and_rank",
     "place_candidate_service",
+    # Trip Service (Phase 6.1)
+    "PRESET_CITIES",
+    "CityNotSupportedError",
+    "TripNotFoundError",
+    "TripService",
+    "TripServiceError",
+    "is_preset_city",
+    "trip_service",
 ]
