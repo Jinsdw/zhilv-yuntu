@@ -472,3 +472,44 @@ class HealthCheckResponse(BaseModel):
     version: str = Field(..., description="服务版本")
     uptime: float = Field(..., ge=0, description="运行时间(秒)")
     dependencies: Dict[str, str] = Field(default_factory=dict, description="依赖服务状态")
+
+
+# ==================== 第七阶段 API 层新增模型 ====================
+
+class TripEditRequest(BaseModel):
+    """行程编辑请求模型（Phase 7.1.3）"""
+
+    trip_id: str = Field(..., min_length=1, description="行程ID")
+    day_number: int = Field(..., ge=1, description="第几天(1-based)")
+    instruction: str = Field(..., min_length=1, max_length=500, description="编辑指令(自然语言)")
+    context: Optional[str] = Field(default=None, description="可选的攻略上下文")
+
+
+class TripHistorySummary(BaseModel):
+    """行程历史摘要模型（列表页轻量卡片，不含每日明细）"""
+
+    id: str = Field(..., description="行程ID")
+    user_id: Optional[str] = Field(default=None, description="用户ID")
+    destination: str = Field(..., description="目的地")
+    start_date: date_type = Field(..., description="开始日期")
+    end_date: date_type = Field(..., description="结束日期")
+    total_days: int = Field(..., description="总天数")
+    total_budget: Optional[float] = Field(default=None, description="总预算(元)")
+    created_at: datetime = Field(..., description="创建时间")
+    updated_at: datetime = Field(..., description="更新时间")
+    is_favorite: bool = Field(default=False, description="是否收藏")
+    is_shared: bool = Field(default=False, description="是否已分享")
+    share_code: Optional[str] = Field(default=None, description="分享码")
+    access_count: int = Field(default=0, description="访问次数")
+    user_rating: Optional[int] = Field(default=None, description="用户评分")
+    model_used: Optional[str] = Field(default=None, description="使用的模型")
+    generation_time: Optional[float] = Field(default=None, description="生成耗时(秒)")
+
+
+class TripHistoryListResponse(BaseModel):
+    """行程历史分页响应模型（Phase 7.1.4）"""
+
+    items: List[TripHistorySummary] = Field(default_factory=list, description="行程摘要列表")
+    total: int = Field(..., ge=0, description="总记录数")
+    limit: int = Field(..., ge=0, description="每页数量")
+    offset: int = Field(..., ge=0, description="偏移量")
