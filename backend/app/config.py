@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # 攻略文档路径
     GUIDE_DOCS_PATH: str = "./backend/data"
 
+    # CORS 来源白名单（逗号分隔；"*" 表示允许所有来源并禁用凭证）
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+
     # 日志配置
     LOG_LEVEL: str = "INFO"
 
