@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import date as date_type, datetime
 
 from ..models.schemas import WeatherInfo
-from .cache_service import cache_service, CacheStrategy
+from .cache_service import cache_service, CacheStrategy, CacheNamespace
 
 # 配置日志
 logger = logging.getLogger(__name__)

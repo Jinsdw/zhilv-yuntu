@@ -49,14 +49,11 @@ async def health_check():
 # ----------------------------------------
 # 路由注册（第七阶段）
 # ----------------------------------------
-from app.api.routes import export, trip
+from app.api.routes import export, trip, weather
 
 app.include_router(trip.router, prefix="/trip", tags=["行程"])
 app.include_router(export.router, prefix="/export", tags=["导出"])
-
-# weather 路由将在 7.3 阶段注册
-# from app.api.routes import weather
-# app.include_router(weather.router, prefix="/weather", tags=["天气"])
+app.include_router(weather.router, prefix="/weather", tags=["天气"])
 
 
 # ----------------------------------------
