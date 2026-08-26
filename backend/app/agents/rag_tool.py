@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from app.rag.guide_catalog import guide_catalog
+
 if TYPE_CHECKING:
     from app.rag.retriever import Retriever
 
@@ -34,7 +36,8 @@ TOOL_DESCRIPTION = (
     "规划行程、推荐美食或景点前应先调用。城市未知时不要编造。"
 )
 
-ALLOWED_CITIES = ("北京", "大理", "成都", "西安", "厦门", "三亚")
+# 沉淀城市白名单：由 guide_catalog 动态生成（6.2 迁移）
+ALLOWED_CITIES = tuple(guide_catalog.list_preset_cities())
 MAX_TOP_K = 8
 DEFAULT_TOP_K = 5
 MAX_TOTAL_TOKENS = 3000
@@ -55,16 +58,7 @@ CATEGORY_WEIGHT: dict[str, float] = {
     "住宿": 1.0,
 }
 
-# 城市别名（模型偶发英文/拼音）
-CITY_ALIASES: dict[str, str] = {
-    "beijing": "北京",
-    "dali": "大理",
-    "chengdu": "成都",
-    "xian": "西安",
-    "xi'an": "西安",
-    "xiamen": "厦门",
-    "sanya": "三亚",
-}
+# 城市别名归一化已迁移至 guide_catalog.resolve_city()（6.2）
 
 
 # ---------------------------------------------------------------------------
@@ -174,20 +168,11 @@ def _approx_tokens(text: str) -> int:
 
 
 def _normalize_city(city: Optional[str]) -> Optional[str]:
-    """将城市规范为六城之一；非法则返回 None（不硬过滤）"""
-    if not city:
-        return None
-    city = city.strip()
-    if city in ALLOWED_CITIES:
-        return city
-    mapped = CITY_ALIASES.get(city.lower())
-    if mapped:
-        return mapped
-    # 包含关系：如「成都市」
-    for c in ALLOWED_CITIES:
-        if c in city or city in c:
-            return c
-    return None
+    """将城市规范为沉淀城市之一；非法则返回 None（不硬过滤）
+
+    6.2 迁移：委托 guide_catalog.resolve_city() 做白名单校验 + 轻量归一化。
+    """
+    return guide_catalog.resolve_city(city)
 
 
 def _normalize_category(category: Optional[str]) -> Optional[str]:

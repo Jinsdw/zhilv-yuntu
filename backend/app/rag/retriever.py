@@ -16,13 +16,15 @@ import yaml
 from loguru import logger
 
 from app.config import settings
+from app.rag.guide_catalog import guide_catalog
 from app.rag.vector_db import vector_db_service, hybrid_search_engine
 
 
 class QueryPreprocessor:
     """查询预处理器 - 快速提取城市和天数"""
 
-    CITY_PATTERN = r"(北京|大理|成都|西安|厦门|三亚|上海|广州|深圳|杭州|苏州|重庆|青岛|武汉|南京)"
+    # 6.2 迁移：城市正则由 guide_catalog 动态生成（沉淀 + 动态城市）
+    CITY_PATTERN = guide_catalog.build_city_pattern()
     DAYS_PATTERNS = [
         r"(\d+)\s*天",
         r"(\d+)\s*日",

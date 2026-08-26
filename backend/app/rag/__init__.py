@@ -20,6 +20,8 @@ from app.rag.index_config import (
     health_monitor,
 )
 
+from app.rag.guide_catalog import GuideCatalog, guide_catalog
+
 from app.rag.retriever import (
     QueryPreprocessor,
     IntentDetector,
@@ -47,6 +49,9 @@ __all__ = [
     "incremental_update_manager",
     "backup_manager",
     "health_monitor",
+    # GuideCatalog
+    "GuideCatalog",
+    "guide_catalog",
     # Retriever
     "QueryPreprocessor",
     "IntentDetector",

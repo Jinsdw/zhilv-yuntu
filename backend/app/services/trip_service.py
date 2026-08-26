@@ -62,27 +62,16 @@ from app.services.place_candidate_service import (
 from app.services.storage_service import storage_service
 from app.services.weather_service import get_weather_service, init_weather_service
 
+from app.rag.guide_catalog import guide_catalog
+
 
 # ============================================================================
 # 常量
 # ============================================================================
 
-# 沉淀城市：有本地攻略文档 + RAG 检索（A级）
-# 6.2 任务 guide_catalog.py 实现后会被迁移过去
-PRESET_CITIES: frozenset[str] = frozenset({
-    "北京", "大理", "成都", "西安", "厦门", "三亚",
-})
-
-# 用户输入别名 → 标准城市名
-_CITY_ALIASES: dict[str, str] = {
-    "北京市": "北京",
-    "大理州": "大理",
-    "大理白族自治州": "大理",
-    "成都市": "成都",
-    "西安市": "西安",
-    "厦门市": "厦门",
-    "三亚市": "三亚",
-}
+# 沉淀城市白名单（A级）：由 guide_catalog 扫描 data/*_guide.md 动态生成
+# 6.2 迁移完成：城市信息单一事实来源为 app.rag.guide_catalog
+PRESET_CITIES: frozenset[str] = guide_catalog.list_preset_cities()
 
 PLACEHOLDER_ADDRESS = "待地图服务补全"
 PLACEHOLDER_COORD = Coordinate(latitude=0.0, longitude=0.0)
@@ -96,24 +85,19 @@ TRIP_CACHE_TTL = 3600
 # ============================================================================
 
 def _normalize_destination(dest: str) -> str:
-    """把用户输入的目的地归一化到沉淀城市标准名（或原样返回）。"""
+    """把用户输入的目的地归一化到沉淀城市标准名（或原样返回）。
+
+    6.2 迁移：别名/关键词归一化交给 LLM，此处仅做白名单校验 + 轻量匹配。
+    """
     if not dest:
         return dest
-    dest = dest.strip()
-    if dest in PRESET_CITIES:
-        return dest
-    if dest in _CITY_ALIASES:
-        return _CITY_ALIASES[dest]
-    # 包含关系：如 "北京市朝阳区" → "北京"
-    for alias, std in _CITY_ALIASES.items():
-        if dest.startswith(alias) or alias in dest:
-            return std
-    return dest
+    resolved = guide_catalog.resolve_city(dest)
+    return resolved if resolved else dest.strip()
 
 
 def is_preset_city(destination: str) -> bool:
     """判断是否为沉淀城市（A 级，走 RAG 检索）。"""
-    return _normalize_destination(destination) in PRESET_CITIES
+    return guide_catalog.is_preset_city(destination)
 
 
 def _run_async(coro):
