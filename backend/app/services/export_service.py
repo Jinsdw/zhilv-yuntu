@@ -375,6 +375,119 @@ class ExportService:
         # 序列化
         return json.dumps(export_data, ensure_ascii=False, indent=2)
 
+    # ==================== Markdown 导出 ====================
+
+    async def export_to_markdown(
+        self,
+        trip_data: TripResponse,
+        options: Optional[ExportOptions] = None,
+    ) -> str:
+        """
+        导出为 Markdown 格式
+
+        Args:
+            trip_data: 行程数据
+            options: 导出选项
+
+        Returns:
+            Markdown 字符串
+        """
+        # 确保 options 有默认值
+        opts = options or ExportOptions()
+
+        lines: List[str] = []
+
+        # 封面/标题
+        lines.append(f"# {trip_data.trip_name}")
+        lines.append("")
+        lines.append(f"- **目的地**: {trip_data.destination}")
+        lines.append(f"- **日期**: {trip_data.start_date} 至 {trip_data.end_date}")
+        lines.append(f"- **天数**: {trip_data.total_days} 天")
+        lines.append("")
+
+        # 预算
+        if opts.include_budget and trip_data.budget:
+            lines.append(f"- **预算总额**: ¥{trip_data.budget.total_budget:.2f}")
+            lines.append("")
+
+        # 行程亮点
+        if opts.include_highlights and trip_data.trip_highlights:
+            lines.append("## 行程亮点")
+            lines.append("")
+            for highlight in trip_data.trip_highlights:
+                lines.append(f"- {highlight}")
+            lines.append("")
+
+        # 每日行程
+        for day in trip_data.days:
+            lines.append(f"## Day {day.day_number} · {day.itinerary_date}")
+            if day.day_theme:
+                lines.append(f"**主题**: {day.day_theme}")
+            lines.append("")
+
+            # 天气
+            if opts.include_weather and day.weather:
+                weather_str = day.weather.weather_type or ""
+                if day.weather.temp_high and day.weather.temp_low:
+                    weather_str += f" {day.weather.temp_low}-{day.weather.temp_high}℃"
+                if weather_str:
+                    lines.append(f" 天气: {weather_str.strip()}")
+                    lines.append("")
+
+            # 行程项目
+            for item in day.items:
+                lines.append(f"### {item.start_time} - {item.end_time} {item.place.name}")
+                lines.append(f"- **活动**: {item.activity}")
+                if item.place.address:
+                    lines.append(f"- **地址**: {item.place.address}")
+                if item.tips:
+                    for tip in item.tips:
+                        lines.append(f"- **贴士**: {tip}")
+                if item.highlights:
+                    for highlight in item.highlights:
+                        lines.append(f"- **亮点**: {highlight}")
+                if item.ticket_price:
+                    lines.append(f"- **门票**: ¥{item.ticket_price}")
+                if item.food_cost:
+                    lines.append(f"- **餐饮预算**: ¥{item.food_cost}")
+                lines.append("")
+
+            # 餐饮安排
+            if day.breakfast:
+                lines.append(f"🌅 早餐: {day.breakfast.name}")
+                if day.breakfast.address:
+                    lines.append(f"   地址: {day.breakfast.address}")
+            if day.lunch:
+                lines.append(f"🍜 午餐: {day.lunch.name}")
+                if day.lunch.address:
+                    lines.append(f"   地址: {day.lunch.address}")
+            if day.dinner:
+                lines.append(f"🍽 晚餐: {day.dinner.name}")
+                if day.dinner.address:
+                    lines.append(f"   地址: {day.dinner.address}")
+
+            # 当日费用
+            if opts.include_budget:
+                lines.append("")
+                lines.append(f"💰 当日费用: ¥{day.daily_cost:.2f}")
+
+            lines.append("")
+
+        # 行程贴士
+        if opts.include_tips and trip_data.trip_tips:
+            lines.append("## 行程贴士")
+            lines.append("")
+            for tip in trip_data.trip_tips:
+                lines.append(f"- {tip}")
+            lines.append("")
+
+        # 页脚
+        lines.append("---")
+        lines.append("*智旅云图 · 智能行程规划*")
+        lines.append(f"*生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}*")
+
+        return "\n".join(lines)
+
     # ==================== PDF 导出 ====================
 
     def _load_template(self, template_name: str = "trip_report.html") -> str:
