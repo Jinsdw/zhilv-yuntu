@@ -2,7 +2,6 @@ import { Suspense, lazy, type ReactNode } from 'react'
 
 import { Navigate, createBrowserRouter } from 'react-router-dom'
 
-import { ROUTES } from './routes'
 import PageLoading from '@/components/PageLoading'
 import AppLayout from '@/layouts/AppLayout'
 

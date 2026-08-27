@@ -153,17 +153,18 @@ http.interceptors.response.use(
 
 /**
  * 解包型请求封装：屏蔽 AxiosResponse，让接口函数返回值即业务数据。
- * 通过双泛型把 axios 的 R 参数置为数据本身。
+ * 注：axios 1.20 类型将 get/post/delete 的返回包为 AxiosResponseResult 条件类型，
+ * 泛型参数无法直接收窄，故统一以 as Promise<T> 收口（响应拦截器已在运行时解包）。
  */
 const api = {
   get<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return http.get<T, T>(url, config)
+    return http.get(url, config) as Promise<T>
   },
   post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    return http.post<T, T>(url, data, config)
+    return http.post(url, data, config) as Promise<T>
   },
   delete<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return http.delete<T, T>(url, config)
+    return http.delete(url, config) as Promise<T>
   },
 }
 

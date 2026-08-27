@@ -198,7 +198,7 @@ frontend/src
 ## 7. 当前进度与下一步
 
 - ✅ 已完成 8.1.1-8.1.5：Vite + React 18 + TS 配置、antd 主题体系、路由、类型定义全对齐。
-- ⏳ 8.2 API 服务封装：`services/api.ts` 建 axios 实例（baseURL 读 `VITE_API_BASE_URL`）、
-  错误拦截器统一抛 `ApiErrorBody`，按第 5 节表格封装各域接口。
-- ⏳ 8.3 视图组件：按 3.2-3.4 组件树逐个实现，先表单后结果页，最后历史页。
-- ⏳ 8.4 地图组件：`AmapTripMap.tsx` 集成高德 JS API，供结果页 MapPanel 使用。
+- ✅ 已完成 8.2.1-8.2.6：`services/api.ts` axios 实例与各域接口封装（行程/天气/导出/健康检查）。
+- ✅ 已完成 8.3.1-8.3.7：视图组件（Home / Result / History 三页面 + trip/weather/budget 业务组件，
+  见 3.2-3.4 组件树；地图面板为 8.4 占位）。
+- ⏳ 8.4 地图组件：`AmapTripMap.tsx` 集成高德 JS API，替换结果页 MapPanel 占位。
