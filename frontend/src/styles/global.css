@@ -1,0 +1,23 @@
+/* 智旅云图全局样式 */
+/* 只放浏览器基准样式，颜色一律走 antd 设计令牌（见 src/theme） */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 数字与金额使用表格数字字形，便于纵向对齐（数据密度约定见 DESIGN.md） */
+.num {
+  font-variant-numeric: tabular-nums;
+}

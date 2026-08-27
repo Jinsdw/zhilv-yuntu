@@ -8,6 +8,7 @@ __pycache__/
 
 .cursor/
 REPLICATION_TASKS.md
+node_modules/
 
 # Distribution / packaging
 .Python
