@@ -14,6 +14,7 @@
 """
 
 import logging
+import sys
 import time
 from contextlib import asynccontextmanager
 from typing import List
@@ -31,6 +32,39 @@ from app.services.trip_service import (
     TripNotFoundError,
     TripServiceError,
 )
+
+from loguru import logger as _loguru_logger
+
+
+class _LoguruInterceptHandler(logging.Handler):
+    """将标准 logging 记录（含 uvicorn 访问日志）转发到 loguru，统一落盘。"""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = _loguru_logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        # 从日志实际发起处回溯，跳过 logging 内部帧，保证源码位置正确
+        frame, depth = sys._getframe(6), 6
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+        _loguru_logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
+        )
+
+
+def _route_standard_logging_to_file() -> None:
+    """根 logger 与 uvicorn 日志接入 loguru（文件 sink 在 config.py 中注册）。"""
+    handler = _LoguruInterceptHandler()
+    logging.basicConfig(handlers=[handler], level=0, force=True)
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        lg = logging.getLogger(name)
+        lg.handlers = [handler]
+        lg.propagate = False
+
+
+_route_standard_logging_to_file()
 
 logger = logging.getLogger(__name__)
 

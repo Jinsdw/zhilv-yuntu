@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
-from weasyprint import HTML, CSS
 
 from ..config import settings
 from ..models.schemas import TripResponse, ItineraryDay, ItineraryItem
@@ -694,7 +693,20 @@ class ExportService:
 
         Returns:
             PDF 文件二进制数据
+
+        Raises:
+            ExportError: PDF 渲染依赖（WeasyPrint/GTK 原生库）未就绪
         """
+        # 延迟导入 WeasyPrint：其依赖 GTK/GLib/Pango 等原生库，
+        # 缺失时只影响 PDF 导出，不应阻塞整个后端服务启动。
+        try:
+            from weasyprint import HTML, CSS
+        except (ImportError, OSError) as e:
+            raise ExportError(
+                message=f"PDF 渲染依赖（WeasyPrint/GTK 原生库）未就绪: {e}",
+                code="PDF_DEPENDENCY_MISSING",
+            ) from e
+
         # 渲染 HTML
         html_content = self._render_html(trip_data, options)
 

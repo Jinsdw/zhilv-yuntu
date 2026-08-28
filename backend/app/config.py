@@ -1,10 +1,13 @@
 # 智旅云图全局配置
 
 import os
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+from loguru import logger
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -65,6 +68,29 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# ============================================================================
+# 日志配置：全量日志落盘（loguru 文件 sink）
+# ============================================================================
+# 项目根目录：config.py 位于 backend/app/ 下，向上两级即项目根
+BASE_DIR = Path(__file__).resolve().parents[2]
+
+# 完整日志文件路径（可用环境变量 LOG_FILE_PATH 覆盖）
+LOG_FILE_PATH = os.getenv(
+    "LOG_FILE_PATH", str(BASE_DIR / "backend" / "logs" / "app.log")
+)
+
+logger.add(
+    LOG_FILE_PATH,
+    level=os.getenv("LOG_LEVEL", settings.LOG_LEVEL),
+    rotation="10 MB",
+    retention="7 days",
+    encoding="utf-8",
+    enqueue=True,
+    backtrace=True,
+    diagnose=False,
+)
 
 
 # ============================================================================
