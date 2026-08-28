@@ -6,6 +6,7 @@
 import os
 import json
 import hashlib
+import re
 import shutil
 from pathlib import Path
 from typing import Optional, Any
@@ -110,6 +111,28 @@ class VectorDBService:
         except Exception as e:
             logger.error(f"创建集合失败: {e}")
             raise
+
+    @staticmethod
+    def _normalize_where(where: Optional[dict]) -> Optional[dict]:
+        """
+        把 {field: value} 简写转换为 ChromaDB 合法过滤语法。
+
+        ChromaDB 的 where 要求每个字段的值都是操作符表达式（如 {"$eq": ...}），
+        多字段必须用 {"$and": [...]} 组合；直接传 {"city": "北京", "category": "行程"}
+        会抛 "Expected where to have exactly one operator" 异常。
+        """
+        if not where:
+            return None
+        conditions = []
+        for field, value in where.items():
+            if isinstance(value, dict):
+                # 已是操作符表达式（$eq/$in/$and 等），原样保留
+                conditions.append({field: value})
+            else:
+                conditions.append({field: {"$eq": value}})
+        if len(conditions) == 1:
+            return conditions[0]
+        return {"$and": conditions}
 
     def reset_collection(self) -> bool:
         """
@@ -225,7 +248,7 @@ class VectorDBService:
             results = self.collection.query(
                 query_embeddings=[query_embedding],
                 n_results=n_results,
-                where=where,
+                where=self._normalize_where(where),
                 where_document=where_document,
                 include=["documents", "metadatas", "distances"]
             )
@@ -255,7 +278,7 @@ class VectorDBService:
             results = self.collection.query(
                 query_texts=query_texts,
                 n_results=n_results,
-                where=where,
+                where=self._normalize_where(where),
                 include=["documents", "metadatas", "distances"]
             )
             return self._format_query_results(results)
@@ -384,20 +407,64 @@ class HybridSearchEngine:
         where_filter: Optional[dict] = None
     ) -> list[dict]:
         """
-        关键词检索（基于 ChromaDB 的全文搜索）
+        关键词检索（词项重叠打分）。
 
-        在 ChromaDB 中，文本查询会使用内部的 BM25 实现
+        不再走 ChromaDB 的 query_texts：其默认 embedding 函数输出 384 维，
+        与集合实际维度（256）不匹配会导致查询报错。改为拉取候选文档后
+        在 Python 侧按词项重叠打分，维度无关且不依赖网络 embedding。
         """
         try:
-            results = self.vector_db.query_by_text(
-                query_texts=[query],
-                n_results=top_k,
-                where=where_filter if where_filter else None
+            collection = self.vector_db.collection
+            fetched = collection.get(
+                where=self.vector_db._normalize_where(where_filter),
+                include=["documents", "metadatas"],
             )
-            return self._results_to_list(results)
+            ids = fetched.get("ids") or []
+            documents = fetched.get("documents") or []
+            metadatas = fetched.get("metadatas") or []
+
+            query_terms = self._keyword_tokenize(query)
+            scored = []
+            for i, doc in enumerate(documents):
+                if not doc or not doc.strip():
+                    continue
+                score = self._keyword_score(query_terms, doc)
+                if score <= 0:
+                    continue
+                scored.append({
+                    "id": ids[i],
+                    "document": doc,
+                    "metadata": metadatas[i] if i < len(metadatas) else {},
+                    "distance": 1.0 - score,
+                    "similarity": score,
+                    "_kw_score": score,
+                })
+            scored.sort(key=lambda d: d["_kw_score"], reverse=True)
+            return scored[:top_k]
         except Exception as e:
             logger.error(f"关键词检索失败: {e}")
             return []
+
+    @staticmethod
+    def _keyword_tokenize(text: str) -> set[str]:
+        """中文关键词分词：ASCII 词 + 单字 + 相邻双字（bigram）。"""
+        text = (text or "").lower()
+        terms = set(re.findall(r"[a-z0-9]+", text))
+        cjk = re.findall(r"[\u4e00-\u9fff]", text)
+        terms.update(cjk)
+        terms.update(cjk[i] + cjk[i + 1] for i in range(len(cjk) - 1))
+        return terms
+
+    @staticmethod
+    def _keyword_score(query_terms: set[str], document: str) -> float:
+        """词项重叠分数（Jaccard，0-1）。"""
+        doc_terms = HybridSearchEngine._keyword_tokenize(document)
+        if not query_terms or not doc_terms:
+            return 0.0
+        overlap = len(query_terms & doc_terms)
+        if overlap == 0:
+            return 0.0
+        return overlap / (len(query_terms) + len(doc_terms) - overlap)
 
     def _rrf_fusion(
         self,

@@ -23,6 +23,7 @@ sys.path.insert(0, str(_backend_dir))
 os.chdir(str(_project_root))
 
 from app.config import settings
+from app.rag.guide_catalog import guide_catalog
 from app.rag.vector_db import VectorDBService
 
 
@@ -123,6 +124,8 @@ class GuideIngester:
         logger.info(f"入库单个城市测试: {city}")
         logger.info("=" * 60)
 
+        # CLI 可能传拼音（beijing），统一映射为中文存 metadata，与检索侧一致
+        city_resolved = guide_catalog.resolve_city(city) or city
         guide_file = Path(self.guide_docs_path) / f"{city}_guide.md"
 
         if not guide_file.exists():
@@ -132,12 +135,12 @@ class GuideIngester:
             }
 
         if force_recreate:
-            existing_ids = self._get_city_doc_ids(city)
+            existing_ids = self._get_city_doc_ids(city_resolved)
             if existing_ids:
                 self.vector_db.delete_documents(existing_ids)
                 logger.info(f"已删除旧数据: {len(existing_ids)} 条")
 
-        chunks = self._parse_guide(guide_file, city)
+        chunks = self._parse_guide(guide_file, city_resolved)
         if not chunks:
             return {
                 "status": "error",
@@ -158,24 +161,31 @@ class GuideIngester:
         stats = self.vector_db.get_collection_info()
         result = {
             "status": "success",
-            "city": city,
+            "city": city_resolved,
             "chunks_created": len(chunks),
             "collection_count": stats.get("count", 0)
         }
 
         logger.info("\n" + "=" * 60)
-        logger.info(f"入库完成！城市: {city}，内容块: {len(chunks)}")
+        logger.info(f"入库完成！城市: {city_resolved}，内容块: {len(chunks)}")
         logger.info(f"集合当前文档总数: {result['collection_count']}")
         logger.info("=" * 60)
 
         return result
 
     def _extract_city_name(self, filename: str) -> str:
-        """从文件名提取城市名"""
+        """
+        从文件名提取城市名（拼音 → 中文）。
+
+        攻略文件以拼音命名（beijing_guide.md），但检索侧用中文（'北京'）过滤，
+        metadata 必须存中文，否则 where city='北京' 永远匹配不到英文 'beijing'，
+        导致检索空结果并触发逐级降级。
+        """
         match = re.match(r"(.+?)_guide\.md", filename)
         if match:
-            city = match.group(1)
-            return city.replace("_", "")
+            city = match.group(1).replace("_", "")
+            resolved = guide_catalog.resolve_city(city)
+            return resolved or city
         return "unknown"
 
     def _parse_guide(self, guide_path: Path, city_name: str) -> list[dict]:
@@ -418,7 +428,7 @@ class GuideIngester:
         """获取指定城市的所有文档ID"""
         try:
             all_data = self.vector_db.collection.get(
-                where={"city": city},
+                where={"city": {"$eq": city}},
                 include=[]
             )
             return all_data.get("ids", [])

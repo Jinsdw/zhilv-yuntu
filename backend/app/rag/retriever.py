@@ -28,11 +28,11 @@ class QueryPreprocessor:
     DAYS_PATTERNS = [
         r"(\d+)\s*天",
         r"(\d+)\s*日",
-        r"三天|两日|四天|五天|六天|七天|一日|两日|三日|四日|五日|六日|七日",
+        r"一天|两天|三天|四天|五天|六天|七天|一日|两日|三日|四日|五日|六日|七日",
     ]
 
     CHINESE_DAYS = {
-        "一": 1, "二": 2, "三": 3, "四": 4,
+        "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
         "五": 5, "六": 6, "七": 7, "日": 1
     }
 
@@ -680,18 +680,19 @@ class Retriever:
         }
 
     def _get_query_embedding(self, query: str) -> list[float]:
-        """获取查询向量"""
+        """获取查询向量（维度与入库一致，见 VectorDBService.EMBEDDING_DIMENSION）"""
         try:
             from zai import ZhipuAiClient
             client = ZhipuAiClient(api_key=settings.EMBEDDING_API_KEY)
             response = client.embeddings.create(
                 model=settings.EMBEDDING_MODEL,
-                input=[query]
+                input=[query],
+                dimensions=vector_db_service.EMBEDDING_DIMENSION,
             )
             return response.data[0].embedding
         except Exception as e:
             logger.error(f"获取查询向量失败: {e}")
-            return [0.0] * 256
+            return [0.0] * vector_db_service.EMBEDDING_DIMENSION
 
 
 retriever = Retriever()

@@ -60,6 +60,30 @@ def _now_meta(meta: Optional[dict]) -> dict:
     return base
 
 
+def _sanitize_messages_for_zhipu(messages: list) -> list:
+    """
+    智谱兼容端点会拒绝 assistant tool_calls 消息 content 为 null（错误码 1214）。
+
+    langchain-openai 序列化时会把空 content 置为 null，而智谱要求字符串，
+    导致带工具结果的第二轮调用返回 400 "messages 参数非法"。
+    这里把空 content 的 tool_calls 消息补一个空格字符串以通过校验；
+    不影响解析：parse_draft 只取最后一条 AIMessage，中间消息不参与。
+    """
+    sanitized = []
+    for m in messages:
+        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+            content = m.content
+            is_empty = (
+                content is None
+                or (isinstance(content, str) and not content.strip())
+                or (isinstance(content, list) and not content)
+            )
+            if is_empty:
+                m = m.model_copy(update={"content": " "})
+        sanitized.append(m)
+    return sanitized
+
+
 def _ensure_meta(state: dict) -> dict:
     """从 state 取 meta，缺省字段补齐。"""
     return _now_meta(state.get("meta", {}))
@@ -80,6 +104,7 @@ def prefetch_rag_node(state: PlannerState) -> dict:
     request = state["request"]
     use_tools = state.get("use_tools", True)
     context = state.get("context")
+    candidate_places = state.get("candidate_places")
 
     meta_patch: dict = {}
 
@@ -89,6 +114,11 @@ def prefetch_rag_node(state: PlannerState) -> dict:
 
     # use_tools=True：交由 LLM 自行决定调工具，不预取
     if use_tools:
+        return {"rag_context": "", "meta": {**_ensure_meta(state), **meta_patch}}
+
+    # 动态城市 POI 路径：已有候选地点池，无需再查本地攻略库（珠海等非沉淀城市
+    # 检索必然为空，会导致无谓的降级阶梯和 rerank 模型加载，浪费数十秒）
+    if candidate_places:
         return {"rag_context": "", "meta": {**_ensure_meta(state), **meta_patch}}
 
     # use_tools=False 且 context 为空：预取一次
@@ -128,14 +158,23 @@ def llm_plan_node(state: PlannerState) -> dict:
         candidate_places=candidate_places,
     )
 
-    # 构造消息：system + 现有消息历史（若 ToolNode 已 append ToolMessage 则保留）
-    existing_messages = list(state.get("messages") or [])
-    if not existing_messages:
-        existing_messages = [
+    # 构造消息：system + user（首轮写入 state，保证后续轮次消息以 system/user 开头）
+    history = list(state.get("messages") or [])
+    if history:
+        # 已有多轮历史（含 system/user + tool 往返），直接续用
+        prefix: list = []
+        messages_for_llm = list(history)
+    else:
+        # 首轮：构造 system + user，并随 ai_msg 一起写回 state
+        # （否则二轮调用只剩 [assistant, tool]，智谱报 1214 messages 参数非法）
+        prefix = [
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=user_prompt),
         ]
-    # 注意：循环回来时 existing_messages 已经包含 ToolMessage，无需重新构造
+        messages_for_llm = list(prefix)
+
+    # 智谱 1214 兜底：空 content 的 assistant tool_calls 消息补空格
+    messages_for_llm = _sanitize_messages_for_zhipu(messages_for_llm)
 
     llm = build_llm()
     if use_tools:
@@ -144,7 +183,7 @@ def llm_plan_node(state: PlannerState) -> dict:
         llm = llm.bind_tools(get_default_rag_tools())
 
     try:
-        ai_msg = llm.invoke(existing_messages)
+        ai_msg = llm.invoke(messages_for_llm)
     except Exception as e:
         logger.error(f"llm_plan_node 调用失败: {e}")
         meta["llm_error"] = str(e)
@@ -154,8 +193,8 @@ def llm_plan_node(state: PlannerState) -> dict:
     if getattr(ai_msg, "tool_calls", None):
         meta["tool_rounds"] = int(meta.get("tool_rounds", 0)) + 1
 
-    # 把 AIMessage append 到 messages，供 ToolNode / 下一轮使用
-    return {"messages": [ai_msg], "meta": meta}
+    # 首轮 prefix（system+user）也要写回 state，供后续轮次复用
+    return {"messages": prefix + [ai_msg], "meta": meta}
 
 
 # ---------------------------------------------------------------------------

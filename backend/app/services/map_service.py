@@ -948,6 +948,21 @@ class MapService:
                 return None
         return None
 
+    @staticmethod
+    def _safe_int(value: Any, default: int = 0) -> int:
+        """安全转换为 int。
+
+        高德 place/text（关键字搜索）接口返回的 POI 中，
+        distance / importance 等字段是空数组 []（而非数字或字符串），
+        直接 int([]) 会抛 "not 'list'" 异常。这里统一兼容 list/dict/None/str/float。
+        """
+        if value is None or isinstance(value, (list, dict)):
+            return default
+        try:
+            return int(float(value))
+        except (ValueError, TypeError):
+            return default
+
     def _parse_boundary(self, boundary_str: str) -> List[List[Coordinate]]:
         """
         解析行政区边界字符串
@@ -1070,7 +1085,7 @@ class MapService:
                     address=poi_data.get("address", ""),
                     location=coord,
                     telephone=poi_data.get("tel", ""),
-                    distance=int(poi_data.get("distance", 0)),
+                    distance=self._safe_int(poi_data.get("distance", 0)),
                     business_area=poi_data.get("business_area", ""),
                     city=poi_data.get("cityname", ""),
                     tag=poi_data.get("tag", ""),
@@ -1087,7 +1102,7 @@ class MapService:
                 keyword=keywords,
                 city=city or "",
                 pois=pois,
-                count=int(data.get("count", 0)),
+                count=self._safe_int(data.get("count", 0)),
                 page=page,
                 page_size=page_size,
             )
@@ -1175,7 +1190,7 @@ class MapService:
                     address=poi_data.get("address", ""),
                     location=coord,
                     telephone=poi_data.get("tel", ""),
-                    distance=int(poi_data.get("distance", 0)),
+                    distance=self._safe_int(poi_data.get("distance", 0)),
                     business_area=poi_data.get("business_area", ""),
                     city=poi_data.get("cityname", ""),
                     tag=poi_data.get("tag", ""),
@@ -1192,7 +1207,7 @@ class MapService:
                 keyword=",".join(keywords or []),
                 city="",
                 pois=pois,
-                count=int(data.get("count", 0)),
+                count=self._safe_int(data.get("count", 0)),
                 page=page,
                 page_size=page_size,
             )
