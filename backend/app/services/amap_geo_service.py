@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # 高德API基础地址
 AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
 AMAP_REGEO_URL = "https://restapi.amap.com/v3/geocode/regeo"
+AMAP_PLACE_TEXT_URL = "https://restapi.amap.com/v3/place/text"
+AMAP_PLACE_DETAIL_URL_V3 = "https://restapi.amap.com/v3/place/detail"
+AMAP_PLACE_DETAIL_URL_V5 = "https://restapi.amap.com/v5/place/detail"
 
 
 class CityMatchType(Enum):
@@ -530,6 +533,110 @@ class AmapGeoService:
         """
         result = await self.geocode(text, city, city_match_type)
         return result if result.status else None
+
+    async def search_pois(
+        self,
+        keyword: str,
+        city: Optional[str] = None,
+        *,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """按关键词搜索 POI，供详情图片补全使用。"""
+        keyword = (keyword or "").strip()
+        if not keyword:
+            return []
+
+        params: Dict[str, Any] = {
+            "key": self._api_key,
+            "keywords": keyword,
+            "offset": min(max(1, limit), 25),
+            "page": 1,
+            "extensions": "base",
+            "output": "json",
+        }
+        if city:
+            params["city"] = city
+
+        try:
+            data = await self._request_with_retry(AMAP_PLACE_TEXT_URL, params)
+        except Exception as e:
+            logger.warning(f"POI搜索失败 [{keyword}]: {e}")
+            return []
+
+        if data.get("status") != "1":
+            logger.warning(f"POI搜索失败 [{keyword}]: {data.get('info', '未知错误')}")
+            return []
+        return data.get("pois") or []
+
+    async def get_poi_detail(self, poi_id: str) -> Optional[Dict[str, Any]]:
+        """获取 POI 详情。先试 v3，未取到图片时回退 v5。"""
+        poi_id = (poi_id or "").strip()
+        if not poi_id:
+            return None
+
+        v3_params = {"key": self._api_key, "id": poi_id, "output": "json"}
+        try:
+            data = await self._request_with_retry(AMAP_PLACE_DETAIL_URL_V3, v3_params)
+            if data.get("status") == "1" and data.get("pois"):
+                detail = data["pois"][0]
+                if detail.get("photos"):
+                    return detail
+        except Exception as e:
+            logger.debug(f"POI详情v3失败 [{poi_id}]: {e}")
+
+        v5_params = {"key": self._api_key, "id": poi_id}
+        try:
+            data = await self._request_with_retry(AMAP_PLACE_DETAIL_URL_V5, v5_params)
+        except Exception as e:
+            logger.warning(f"POI详情v5失败 [{poi_id}]: {e}")
+            return None
+
+        if data.get("status") == "1" and data.get("pois"):
+            return data["pois"][0]
+        return None
+
+    @staticmethod
+    def extract_photo_urls(poi: Dict[str, Any], *, limit: int = 3) -> List[str]:
+        """从高德 POI 详情 photos 字段提取可展示图片 URL。"""
+        urls: List[str] = []
+        seen: set[str] = set()
+        for photo in poi.get("photos") or []:
+            if not isinstance(photo, dict):
+                continue
+            url = (photo.get("url") or photo.get("preurl") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                continue
+            if url in seen:
+                continue
+            seen.add(url)
+            urls.append(url)
+            if len(urls) >= limit:
+                break
+        return urls
+
+    async def get_place_photos(
+        self,
+        keyword: str,
+        city: Optional[str] = None,
+        *,
+        limit: int = 3,
+    ) -> List[str]:
+        """按地点名称获取 POI 图片 URL 列表。"""
+        pois = await self.search_pois(keyword, city, limit=5)
+        if not pois:
+            return []
+
+        best = pois[0]
+        for poi in pois:
+            name = str(poi.get("name") or "")
+            if name and (name == keyword or keyword in name or name in keyword):
+                best = poi
+                break
+
+        detail = await self.get_poi_detail(str(best.get("id") or ""))
+        if not detail:
+            return []
+        return self.extract_photo_urls(detail, limit=limit)
 
     async def smart_geocode(
         self,

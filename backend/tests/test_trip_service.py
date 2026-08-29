@@ -509,6 +509,59 @@ class TestEnrichMap:
         result = svc.generate_trip(request)
         assert "amap_geo 服务不可用" in result.metadata["enrich_warnings"][0]
 
+    def test_place_photos_are_filled_from_amap(self):
+        """地点无图时应从高德 POI 详情补 cover_image/images。"""
+        request = _future_request(destination="成都")
+        placeholder = _placeholder_trip(request)
+        agent = MagicMock()
+        agent.plan.return_value = placeholder
+
+        amap = MagicMock()
+        amap.geocode = AsyncMock(return_value=_geocode_result())
+        amap.get_place_photos = AsyncMock(return_value=[
+            "https://example.com/place-1.jpg",
+            "https://example.com/place-2.jpg",
+        ])
+        cache = MagicMock()
+        cache.get.return_value = None
+        storage = MagicMock()
+        storage.create_trip.return_value = "trip-1"
+
+        svc = _build_service(agent=agent, amap_geo=amap, storage=storage, cache=cache)
+        svc._get_weather_service = lambda: None
+
+        result = svc.generate_trip(request)
+        first_place = result.days[0].items[0].place
+        assert first_place.cover_image == "https://example.com/place-1.jpg"
+        assert first_place.images == [
+            "https://example.com/place-1.jpg",
+            "https://example.com/place-2.jpg",
+        ]
+
+    def test_hotel_photos_are_filled_from_amap(self):
+        """每日住宿酒店无图时应从高德 POI 详情补图片。"""
+        request = _future_request(destination="成都")
+        placeholder = _placeholder_trip(request)
+        agent = MagicMock()
+        agent.plan.return_value = placeholder
+
+        amap = MagicMock()
+        amap.geocode = AsyncMock(return_value=_geocode_result())
+        amap.get_place_photos = AsyncMock(return_value=["https://example.com/hotel.jpg"])
+        cache = MagicMock()
+        cache.get.return_value = None
+        storage = MagicMock()
+        storage.create_trip.return_value = "trip-1"
+
+        svc = _build_service(agent=agent, amap_geo=amap, storage=storage, cache=cache)
+        svc._get_weather_service = lambda: None
+
+        result = svc.generate_trip(request)
+        hotel = result.days[0].hotel
+        assert hotel is not None
+        assert hotel.cover_image == "https://example.com/hotel.jpg"
+        assert hotel.images == ["https://example.com/hotel.jpg"]
+
 
 class TestEnrichWeather:
     """天气补全"""

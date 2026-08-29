@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import time
 import uuid
@@ -346,16 +347,20 @@ class TripService:
 
         city = trip.destination
         new_days: List[ItineraryDay] = []
+        photo_cache: Dict[str, List[str]] = {}
         for day in trip.days:
             new_items: List[ItineraryItem] = []
             for item in day.items:
                 new_place = self._geocode_place(
                     item.place, city, amap, warnings, day.day_number
                 )
+                new_place = self._enrich_place_photos(
+                    new_place, city, amap, warnings, f"第{day.day_number}天", photo_cache
+                )
                 new_items.append(item.model_copy(update={"place": new_place}))
             new_day = day.model_copy(update={"items": new_items})
             new_day = self._enrich_day_meals_hotel(
-                new_day, city, amap, warnings
+                new_day, city, amap, warnings, photo_cache
             )
             new_days.append(new_day)
 
@@ -402,6 +407,36 @@ class TripService:
             "district": result.district or place.district,
         })
 
+    def _enrich_place_photos(
+        self,
+        place: PlaceInfo,
+        city: str,
+        amap: AmapGeoService,
+        warnings: List[str],
+        context: str,
+        photo_cache: Dict[str, List[str]],
+    ) -> PlaceInfo:
+        """用高德 POI 详情 photos 给地点补图片。失败不影响主流程。"""
+        if place.cover_image or place.images:
+            return place
+
+        get_photos = getattr(amap, "get_place_photos", None)
+        if not callable(get_photos) or not inspect.iscoroutinefunction(get_photos):
+            return place
+
+        try:
+            photos = self._get_cached_photos(
+                place.name, city, get_photos, photo_cache
+            )
+        except Exception as e:
+            warnings.append(f"{context} [{place.name}] 图片补全失败: {e}")
+            return place
+
+        photos = [url for url in (photos or []) if isinstance(url, str) and url]
+        if not photos:
+            return place
+        return place.model_copy(update={"images": photos, "cover_image": photos[0]})
+
     @staticmethod
     def _compose_address(result: GeocodeResult) -> Optional[str]:
         """用高德返回的省/市/区/街道拼一个完整地址。"""
@@ -420,6 +455,7 @@ class TripService:
         city: str,
         amap: AmapGeoService,
         warnings: List[str],
+        photo_cache: Dict[str, List[str]],
     ) -> ItineraryDay:
         """对 day 的餐饮/酒店做 geocode 补全。"""
         updates: Dict[str, Any] = {}
@@ -429,6 +465,11 @@ class TripService:
             if meal is None:
                 continue
             if meal.coordinate.latitude != 0.0:
+                enriched_meal = self._enrich_named_entity_photos(
+                    meal, city, amap, warnings, f"第{day.day_number}天餐", photo_cache
+                )
+                if enriched_meal is not meal:
+                    updates[meal_field] = enriched_meal
                 continue
             query = f"{meal.name}({city})" if city else meal.name
             try:
@@ -440,13 +481,17 @@ class TripService:
                 continue
             if result is None or not result.is_valid():
                 continue
-            updates[meal_field] = meal.model_copy(update={
+            updated_meal = meal.model_copy(update={
                 "coordinate": Coordinate(
                     latitude=float(result.latitude),
                     longitude=float(result.longitude),
                 ),
                 "address": self._compose_address(result) or meal.address,
             })
+            updated_meal = self._enrich_named_entity_photos(
+                updated_meal, city, amap, warnings, f"第{day.day_number}天餐", photo_cache
+            )
+            updates[meal_field] = updated_meal
 
         # 酒店
         if day.hotel and day.hotel.coordinate.latitude == 0.0:
@@ -459,17 +504,73 @@ class TripService:
                 )
                 result = None
             if result is not None and result.is_valid():
-                updates["hotel"] = day.hotel.model_copy(update={
+                updated_hotel = day.hotel.model_copy(update={
                     "coordinate": Coordinate(
                         latitude=float(result.latitude),
                         longitude=float(result.longitude),
                     ),
                     "address": self._compose_address(result) or day.hotel.address,
                 })
+                updated_hotel = self._enrich_named_entity_photos(
+                    updated_hotel, city, amap, warnings, f"第{day.day_number}天酒店", photo_cache
+                )
+                updates["hotel"] = updated_hotel
+        elif day.hotel:
+            updated_hotel = self._enrich_named_entity_photos(
+                day.hotel, city, amap, warnings, f"第{day.day_number}天酒店", photo_cache
+            )
+            if updated_hotel is not day.hotel:
+                updates["hotel"] = updated_hotel
 
         if updates:
             return day.model_copy(update=updates)
         return day
+
+    def _enrich_named_entity_photos(
+        self,
+        entity: Any,
+        city: str,
+        amap: AmapGeoService,
+        warnings: List[str],
+        context: str,
+        photo_cache: Dict[str, List[str]],
+    ) -> Any:
+        """给餐厅/酒店等带 name/images 的模型补图片。"""
+        if getattr(entity, "cover_image", None) or getattr(entity, "images", None):
+            return entity
+
+        get_photos = getattr(amap, "get_place_photos", None)
+        if not callable(get_photos) or not inspect.iscoroutinefunction(get_photos):
+            return entity
+
+        name = getattr(entity, "name", "")
+        try:
+            photos = self._get_cached_photos(name, city, get_photos, photo_cache)
+        except Exception as e:
+            warnings.append(f"{context} [{name}] 图片补全失败: {e}")
+            return entity
+
+        photos = [url for url in (photos or []) if isinstance(url, str) and url]
+        if not photos:
+            return entity
+
+        updates: Dict[str, Any] = {"images": photos}
+        if hasattr(entity, "cover_image"):
+            updates["cover_image"] = photos[0]
+        return entity.model_copy(update=updates)
+
+    @staticmethod
+    def _get_cached_photos(
+        name: str,
+        city: str,
+        get_photos: Any,
+        photo_cache: Dict[str, List[str]],
+    ) -> List[str]:
+        """同一次行程补全过程中复用相同地点的图片查询结果。"""
+        key = f"{city}|{name}"
+        if key not in photo_cache:
+            photo_cache[key] = _run_async(get_photos(name, city=city, limit=3)) or []
+        return photo_cache[key]
 
     # ------------------------------------------------------------------
     # 天气补全
