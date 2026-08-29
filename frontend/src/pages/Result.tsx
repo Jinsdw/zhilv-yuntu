@@ -197,7 +197,7 @@ export default function Result() {
         </div>
       </Flex>
 
-      <MapPanel />
+      <MapPanel days={trip.days ?? []} />
 
       {trip.trip_tips?.length > 0 && (
         <Card title="行程贴士">

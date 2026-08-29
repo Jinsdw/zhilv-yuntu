@@ -8,8 +8,17 @@ export default defineConfig(({ mode }) => {
   // loadEnv 读取 .env.development / .env.production（前缀 VITE_）
   const env = loadEnv(mode, process.cwd(), '')
 
+  // 高德 JSAPI 密钥从项目根 .env 读取（AMAP_JS_API_KEY / AMAP_SECURITY_JS_CODE），
+  // 经 define 注入前端常量 __AMAP_JS_API_KEY__ / __AMAP_SECURITY_JS_CODE__。
+  // 注：Vite 只默认注入 VITE_ 前缀变量，根 .env 的 AMAP_* 需手动桥接。
+  const rootEnv = loadEnv(mode, fileURLToPath(new URL('..', import.meta.url)), '')
+
   return {
     plugins: [react()],
+    define: {
+      __AMAP_JS_API_KEY__: JSON.stringify(rootEnv.AMAP_JS_API_KEY ?? ''),
+      __AMAP_SECURITY_JS_CODE__: JSON.stringify(rootEnv.AMAP_SECURITY_JS_CODE ?? ''),
+    },
     resolve: {
       alias: {
         // 路径别名：@/ 指向 src/，配合 tsconfig.app.json 的 paths
