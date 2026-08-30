@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        # .env 是前后端共用的，会包含前端专属变量（如 AMAP_SECURITY_JS_CODE）。
+        # 未在 Settings 中定义的变量一律忽略，避免启动时因 extra_forbidden 报错。
+        extra = "ignore"
 
 
 settings = Settings()
