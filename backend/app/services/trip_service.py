@@ -35,7 +35,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 from pydantic import BaseModel
 
+from app.agents.llm_factory import build_json_llm
 from app.agents.trip_planner_agent import TripPlannerAgent, trip_planner_agent
+from langchain_core.messages import HumanMessage
 from app.config import settings
 from app.models.schemas import (
     BudgetInfo,
@@ -120,6 +122,18 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
+def _strip_json_fence(text: str) -> str:
+    """去掉 LLM 输出可能包裹的 ```json ... ``` 代码围栏。"""
+    text = text.strip()
+    if text.startswith("```"):
+        first_newline = text.find("\n")
+        if first_newline != -1:
+            text = text[first_newline + 1:]
+        if text.rstrip().endswith("```"):
+            text = text.rstrip()[:-3]
+    return text.strip()
+
+
 # ============================================================================
 # 异常
 # ============================================================================
@@ -157,6 +171,7 @@ class TripService:
         weather: Any = None,
         storage: Any = None,
         cache: Any = None,
+        llm: Any = None,
     ):
         self._agent = agent or trip_planner_agent
         self._amap_geo = amap_geo
@@ -164,6 +179,7 @@ class TripService:
         self._weather = weather
         self._storage = storage or storage_service
         self._cache = cache or cache_service
+        self._llm = llm
 
     # ------------------------------------------------------------------
     # 服务懒加载（避免启动期失败 / 循环导入）
@@ -255,6 +271,9 @@ class TripService:
 
         # 5. 天气补全
         trip = self._enrich_weather(trip, request, enrich_warnings)
+
+        # 5.1 天气出行建议（大模型基于天气生成两条简短建议）
+        trip = self._enrich_weather_suggestions(trip, enrich_warnings)
 
         # 6. 预算二次校正（基于补全后的真实门票）
         trip = self._recalculate_budget(trip, request)
@@ -618,6 +637,55 @@ class TripService:
             new_days.append(day.model_copy(update={"weather": w}))
 
         return trip.model_copy(update={"days": new_days})
+
+    def _enrich_weather_suggestions(
+        self,
+        trip: TripResponse,
+        warnings: List[str],
+    ) -> TripResponse:
+        """基于天气预报调用大模型，生成两条简短出行建议。"""
+        days_with_weather = [d for d in trip.days if d.weather]
+        if not days_with_weather:
+            return trip
+
+        summary_lines: List[str] = []
+        for d in days_with_weather:
+            w = d.weather
+            wind = (
+                f"{w.wind_direction or ''}"
+                f"{(' ' + str(w.wind_speed)) if w.wind_speed else ''}"
+            ).strip() or "未知"
+            summary_lines.append(
+                f"{d.itinerary_date.isoformat()}：{w.weather_type}，"
+                f"{w.temp_low}~{w.temp_high}°C，风力{wind}"
+            )
+        summary = "\n".join(summary_lines)
+
+        prompt = (
+            f"你是资深旅行顾问。请根据以下「{trip.destination}」的天气预报，"
+            f"给出两条简短实用的出行建议（每条不超过25字，聚焦天气应对，"
+            f"如携带雨具、防晒、添衣保暖、调整游览时段等）。\n\n"
+            f"行程日期：{trip.start_date.isoformat()} 至 {trip.end_date.isoformat()}\n"
+            f"天气预报：\n{summary}\n\n"
+            f'只返回 JSON，格式：{{"suggestions": ["建议一", "建议二"]}}'
+        )
+
+        try:
+            llm = self._llm or build_json_llm(temperature=0.3, max_tokens=256)
+            resp = llm.invoke([HumanMessage(content=prompt)])
+            content = resp.content if isinstance(resp.content, str) else str(resp.content)
+            data = json.loads(_strip_json_fence(content))
+            raw = data.get("suggestions", [])
+            suggestions = [
+                s.strip() for s in raw
+                if isinstance(s, str) and s.strip()
+            ][:2]
+        except Exception as e:
+            logger.warning(f"天气出行建议生成失败: {e}")
+            warnings.append(f"天气出行建议生成失败: {e}")
+            suggestions = []
+
+        return trip.model_copy(update={"weather_suggestions": suggestions})
 
     # ------------------------------------------------------------------
     # 预算二次校正

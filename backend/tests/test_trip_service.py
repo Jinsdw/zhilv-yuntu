@@ -191,6 +191,7 @@ def _build_service(
     weather: Any = None,
     storage: Any = None,
     cache: Any = None,
+    llm: Any = None,
 ) -> TripService:
     """构造一个全依赖 mock 的 TripService。"""
     return TripService(
@@ -200,6 +201,7 @@ def _build_service(
         weather=weather,
         storage=storage or MagicMock(),
         cache=cache or MagicMock(),
+        llm=llm or MagicMock(),
     )
 
 
@@ -631,6 +633,71 @@ class TestEnrichWeather:
 
         result = svc.generate_trip(request)
         assert any("未获取到" in w for w in result.metadata["enrich_warnings"])
+
+    def test_weather_suggestions_generated_by_llm(self):
+        """天气补全后应调用大模型生成两条出行建议。"""
+        request = _future_request(destination="成都")
+        placeholder = _placeholder_trip(request, days=2)
+        agent = MagicMock()
+        agent.plan.return_value = placeholder
+
+        weather_svc = MagicMock()
+        weather_svc.get_trip_weather = AsyncMock(
+            return_value={
+                "成都": [
+                    _weather_info(request.start_date, "晴"),
+                    _weather_info(request.start_date + timedelta(days=1), "多云"),
+                ]
+            }
+        )
+        cache = MagicMock()
+        cache.get.return_value = None
+        storage = MagicMock()
+        storage.create_trip.return_value = "trip-1"
+
+        llm = MagicMock()
+        llm.invoke.return_value.content = '{"suggestions": ["携带雨具", "注意防晒"]}'
+
+        svc = _build_service(
+            agent=agent, weather=weather_svc, storage=storage, cache=cache, llm=llm,
+        )
+        svc._amap_geo = None
+
+        result = svc.generate_trip(request)
+        assert result.weather_suggestions == ["携带雨具", "注意防晒"]
+
+    def test_weather_suggestions_llm_failure_records_warning(self):
+        """大模型建议生成失败不应阻断主流程，仅记 warning。"""
+        request = _future_request(destination="成都")
+        placeholder = _placeholder_trip(request, days=2)
+        agent = MagicMock()
+        agent.plan.return_value = placeholder
+
+        weather_svc = MagicMock()
+        weather_svc.get_trip_weather = AsyncMock(
+            return_value={
+                "成都": [
+                    _weather_info(request.start_date, "晴"),
+                    _weather_info(request.start_date + timedelta(days=1), "多云"),
+                ]
+            }
+        )
+        cache = MagicMock()
+        cache.get.return_value = None
+        storage = MagicMock()
+        storage.create_trip.return_value = "trip-1"
+
+        llm = MagicMock()
+        llm.invoke.side_effect = RuntimeError("llm down")
+
+        svc = _build_service(
+            agent=agent, weather=weather_svc, storage=storage, cache=cache, llm=llm,
+        )
+        svc._amap_geo = None
+
+        result = svc.generate_trip(request)
+        assert result.weather_suggestions == []
+        assert any("天气出行建议生成失败" in w for w in result.metadata["enrich_warnings"])
 
 
 class TestBudgetRecalculation:

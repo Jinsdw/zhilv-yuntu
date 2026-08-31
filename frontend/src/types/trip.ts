@@ -77,6 +77,8 @@ export interface TripResponse {
   trip_highlights: string[]
   /** 行程贴士 */
   trip_tips: string[]
+  /** 天气出行建议（大模型基于天气预报生成） */
+  weather_suggestions?: string[]
   /** 推荐美食 */
   recommended_foods: string[]
   /** 推荐购物 */

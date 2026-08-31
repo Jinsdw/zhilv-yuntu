@@ -190,7 +190,7 @@ export default function Result() {
       {/* 天气与预算（两列布局，地图 8.4 接入后并入） */}
       <Flex wrap gap={24}>
         <div style={{ flex: '1 1 340px', minWidth: 0 }}>
-          <WeatherPanel list={weatherList} />
+          <WeatherPanel list={weatherList} suggestions={trip.weather_suggestions} />
         </div>
         <div style={{ flex: '1 1 420px', minWidth: 0 }}>
           <BudgetPanel budget={trip.budget} totalDays={trip.total_days} />

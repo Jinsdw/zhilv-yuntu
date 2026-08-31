@@ -12,6 +12,8 @@ import { formatDateCN } from '@/utils/format'
 interface WeatherPanelProps {
   /** 按天顺序的天气列表（与行程天数对应） */
   list: Array<{ date: string; weather: WeatherInfo | null | undefined }>
+  /** 大模型生成的行程级天气出行建议 */
+  suggestions?: string[]
 }
 
 /** 天气类型 → 语义色（只表达状态，不承担品牌，见 DESIGN.md §2.1） */
@@ -23,7 +25,35 @@ function weatherTagColor(type: string): string {
   return 'default'
 }
 
-export default function WeatherPanel({ list }: WeatherPanelProps) {
+/** 只返回接口中实际有值的明细项，未返回的字段（AQI/湿度/穿衣等）不展示 */
+function weatherDetailItems(weather: WeatherInfo) {
+  const items: Array<{ key: string; label: string; children: string }> = []
+
+  if (weather.aqi_level != null || weather.aqi != null) {
+    items.push({
+      key: 'aqi',
+      label: '空气质量',
+      children: weather.aqi_level ?? `${weather.aqi}`,
+    })
+  }
+  if (weather.humidity != null) {
+    items.push({ key: 'humidity', label: '湿度', children: `${weather.humidity}%` })
+  }
+  if (weather.wind_direction) {
+    items.push({
+      key: 'wind',
+      label: '风力',
+      children: `${weather.wind_direction}${weather.wind_speed != null ? ` ${weather.wind_speed}` : ''}`.trim(),
+    })
+  }
+  if (weather.dressing_suggestion) {
+    items.push({ key: 'dress', label: '穿衣', children: weather.dressing_suggestion })
+  }
+
+  return items
+}
+
+export default function WeatherPanel({ list, suggestions = [] }: WeatherPanelProps) {
   const days = list.filter((item) => item.weather)
   if (days.length === 0) {
     return (
@@ -33,9 +63,7 @@ export default function WeatherPanel({ list }: WeatherPanelProps) {
     )
   }
 
-  const suggestions = days
-    .map((item) => item.weather?.travel_suggestion)
-    .filter((text): text is string => Boolean(text))
+  const tips = suggestions.filter((text): text is string => Boolean(text))
 
   return (
     <Card
@@ -60,27 +88,20 @@ export default function WeatherPanel({ list }: WeatherPanelProps) {
                     {weather!.temp_low}°C ~ {weather!.temp_high}°C
                   </Typography.Text>
                 </Flex>
-                <Descriptions
-                  size="small"
-                  column={1}
-                  items={[
-                    { key: 'aqi', label: '空气质量', children: weather!.aqi_level ?? (weather!.aqi != null ? `${weather!.aqi}` : '—') },
-                    { key: 'humidity', label: '湿度', children: weather!.humidity != null ? `${weather!.humidity}%` : '—' },
-                    { key: 'wind', label: '风力', children: weather!.wind_direction ? `${weather!.wind_direction} ${weather!.wind_speed ?? ''}`.trim() : '—' },
-                    { key: 'dress', label: '穿衣', children: weather!.dressing_suggestion ?? '—' },
-                  ]}
-                />
+                {weatherDetailItems(weather!).length > 0 && (
+                  <Descriptions size="small" column={1} items={weatherDetailItems(weather!)} />
+                )}
               </Flex>
             </Card>
           ))}
         </Flex>
 
-        {suggestions.length > 0 && (
+        {tips.length > 0 && (
           <Alert
             type="info"
             showIcon
             message="出行建议"
-            description={suggestions.join('；')}
+            description={tips.join('；')}
           />
         )}
       </Flex>

@@ -22,7 +22,7 @@ import logging
 import time
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
-from datetime import date as date_type, datetime
+from datetime import date as date_type, datetime, timedelta
 
 from ..models.schemas import WeatherInfo
 from .cache_service import cache_service, CacheStrategy, CacheNamespace
@@ -311,35 +311,48 @@ class WeatherService:
         Returns:
             WeatherInfo
         """
-        day_temp_str = forecast.get("dayTemp", "")
-        night_temp_str = forecast.get("nightTemp", "")
+        # 高德天气 API 预报字段为全小写：daytemp/nighttemp/dayweather/nightweather/daywind/daypower
+        day_temp_str = forecast.get("daytemp", "")
+        night_temp_str = forecast.get("nighttemp", "")
 
         try:
             temp_high = int(day_temp_str) if day_temp_str else None
-        except ValueError:
+        except (ValueError, TypeError):
             temp_high = None
 
         try:
             temp_low = int(night_temp_str) if night_temp_str else None
-        except ValueError:
+        except (ValueError, TypeError):
             temp_low = None
 
-        temp_avg = (temp_high + temp_low) // 2 if temp_high and temp_low else None
+        temp_avg = (
+            (temp_high + temp_low) // 2
+            if temp_high is not None and temp_low is not None
+            else None
+        )
 
-        day_weather = forecast.get("dayWeather", "")
-        night_weather = forecast.get("nightWeather", "")
+        day_weather = forecast.get("dayweather", "")
+        night_weather = forecast.get("nightweather", "")
         weather_type = day_weather if day_weather else night_weather
 
-        day_wind_dir = forecast.get("dayWindDir", "")
-        day_wind_power = forecast.get("dayWindPower", "")
+        day_wind_dir = forecast.get("daywind", "")
+        day_wind_power = forecast.get("daypower", "")
+
+        # 优先使用 API 返回的真实日期（预报从当天起）
+        raw_date = forecast.get("date", "")
+        if raw_date:
+            try:
+                forecast_date = date_type.fromisoformat(str(raw_date))
+            except (ValueError, TypeError):
+                pass
 
         return WeatherInfo(
             forecast_date=forecast_date,
-            temp_high=temp_high,
-            temp_low=temp_low,
+            temp_high=temp_high or 0,
+            temp_low=temp_low or 0,
             temp_avg=temp_avg,
-            weather_type=weather_type,
-            wind_direction=day_wind_dir,
+            weather_type=weather_type or "未知",
+            wind_direction=day_wind_dir or None,
             wind_speed=self._parse_wind_power(day_wind_power),
         )
 
@@ -460,11 +473,7 @@ class WeatherService:
             base_date = date_type.today()
 
             for i, fc in enumerate(forecast_data.forecasts[:days]):
-                fc_date = date_type(
-                    base_date.year,
-                    base_date.month,
-                    base_date.day + i,
-                )
+                fc_date = base_date + timedelta(days=i)
                 weather_info = self._forecast_to_weather_info(fc, fc_date)
                 forecasts.append(weather_info)
 
@@ -515,12 +524,12 @@ class WeatherService:
             if include_live:
                 tasks.append(self._batch_live_task(city))
             else:
-                tasks.append(asyncio.coroutine(lambda c=city: {"city": c, "live": None})())
+                tasks.append(self._batch_none_task(city, "live"))
 
             if include_forecast:
                 tasks.append(self._batch_forecast_task(city))
             else:
-                tasks.append(asyncio.coroutine(lambda c=city: {"city": c, "forecast": None})())
+                tasks.append(self._batch_none_task(city, "forecast"))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -545,6 +554,10 @@ class WeatherService:
 
         return weather_map
 
+    async def _batch_none_task(self, city: str, key: str) -> Dict[str, Any]:
+        """批量任务：未启用项的占位结果（替代已移除的 asyncio.coroutine）。"""
+        return {"city": city, key: None}
+
     async def _batch_live_task(self, city: str) -> Dict[str, Any]:
         """批量任务：获取实时天气"""
         return {
@@ -553,10 +566,10 @@ class WeatherService:
         }
 
     async def _batch_forecast_task(self, city: str) -> Dict[str, Any]:
-        """批量任务：获取天气预报"""
+        """批量任务：获取天气预报（拉满 4 天，覆盖当天 + 未来 3 天）"""
         return {
             "city": city,
-            "forecast": await self.get_forecast(city, days=3),
+            "forecast": await self.get_forecast(city, days=4),
         }
 
     async def get_trip_weather(
@@ -592,13 +605,16 @@ class WeatherService:
         )
 
         result: Dict[str, List[WeatherInfo]] = {}
+        end_date = start_date + timedelta(days=days)
 
         for city, data in city_forecasts.items():
-            forecasts = data.get("forecast", [])
-            if forecasts:
-                result[city] = forecasts[:days]
-            else:
-                result[city] = []
+            forecasts = data.get("forecast", []) or []
+            # 按行程日期对齐：只保留 [start_date, end_date) 区间内的预报
+            aligned = [
+                f for f in forecasts
+                if f.forecast_date and start_date <= f.forecast_date < end_date
+            ]
+            result[city] = aligned[:days] if aligned else forecasts[:days]
 
         logger.info(f"行程天气获取完成: {len(result)} 个城市")
         return result

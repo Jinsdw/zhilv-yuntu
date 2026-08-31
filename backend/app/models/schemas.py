@@ -403,6 +403,9 @@ class TripResponse(BaseModel):
     # 行程特点
     trip_highlights: List[str] = Field(default_factory=list, description="行程亮点")
     trip_tips: List[str] = Field(default_factory=list, description="行程贴士")
+
+    # 天气出行建议（大模型基于天气预报生成）
+    weather_suggestions: List[str] = Field(default_factory=list, description="天气出行建议")
     
     # 推荐美食
     recommended_foods: List[str] = Field(default_factory=list, description="推荐美食")
