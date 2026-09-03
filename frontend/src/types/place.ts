@@ -103,6 +103,12 @@ export interface RestaurantInfo {
   images: string[]
   /** 是否支持预订 */
   support_booking: boolean
+  /** 是否适合儿童 */
+  suitable_for_kids: boolean
+  /** 是否适合老人 */
+  suitable_for_elderly: boolean
+  /** 是否有无障碍设施 */
+  has_wheelchair: boolean
 }
 
 /** 酒店信息：与 schemas.HotelInfo 对齐 */
@@ -142,4 +148,10 @@ export interface HotelInfo {
   cover_image?: string | null
   /** 特色标签 */
   tags: string[]
+  /** 是否适合儿童 */
+  suitable_for_kids: boolean
+  /** 是否适合老人 */
+  suitable_for_elderly: boolean
+  /** 是否有无障碍设施 */
+  has_wheelchair: boolean
 }

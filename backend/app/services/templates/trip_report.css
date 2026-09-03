@@ -246,6 +246,23 @@ body {
     page-break-inside: avoid;
 }
 
+.tips-category {
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px dashed #bbf7d0;
+}
+
+.tips-category:last-child {
+    border-bottom: none;
+}
+
+.tips-category-title {
+    font-size: 13pt;
+    font-weight: bold;
+    color: #166534;
+    margin-bottom: 10px;
+}
+
 .tips-list {
     margin: 0;
     padding-left: 20px;

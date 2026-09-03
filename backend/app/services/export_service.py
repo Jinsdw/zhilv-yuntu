@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..config import settings
-from ..models.schemas import TripResponse, ItineraryDay, ItineraryItem
+from ..models.schemas import TripResponse, ItineraryDay, ItineraryItem, TripTipCategory
 from .storage_service import storage_service
 
 # 配置日志
@@ -264,6 +264,15 @@ class ExportService:
         # 行程贴士
         if trip_data.trip_tips:
             export_data["tips"] = trip_data.trip_tips
+        if trip_data.trip_tips_grouped:
+            export_data["tips_grouped"] = [
+                {
+                    "category": g.category,
+                    "icon": g.icon,
+                    "tips": g.tips,
+                }
+                for g in trip_data.trip_tips_grouped
+            ]
 
         return export_data
 
@@ -476,9 +485,17 @@ class ExportService:
         if opts.include_tips and trip_data.trip_tips:
             lines.append("## 行程贴士")
             lines.append("")
-            for tip in trip_data.trip_tips:
-                lines.append(f"- {tip}")
-            lines.append("")
+            if trip_data.trip_tips_grouped:
+                for group in trip_data.trip_tips_grouped:
+                    lines.append(f"### {group.icon} {group.category}")
+                    lines.append("")
+                    for tip in group.tips:
+                        lines.append(f"- {tip}")
+                    lines.append("")
+            else:
+                for tip in trip_data.trip_tips:
+                    lines.append(f"- {tip}")
+                lines.append("")
 
         # 页脚
         lines.append("---")
@@ -535,7 +552,10 @@ class ExportService:
 
         # 行程贴士
         if options and options.include_tips and trip_data.trip_tips:
-            html_parts.append(self._render_tips(trip_data.trip_tips))
+            if trip_data.trip_tips_grouped:
+                html_parts.append(self._render_tips_grouped(trip_data.trip_tips_grouped))
+            else:
+                html_parts.append(self._render_tips(trip_data.trip_tips))
 
         # 页脚
         html_parts.append(self._render_footer())
@@ -665,6 +685,30 @@ class ExportService:
 
         html += '''
     </ul>
+</div>
+'''
+        return html
+
+    def _render_tips_grouped(self, tips_grouped: List[TripTipCategory]) -> str:
+        """渲染结构化分类行程贴士"""
+        html = '''
+<div class="section tips-section">
+    <h2 class="section-title">💡 行程贴士</h2>
+'''
+        for group in tips_grouped:
+            html += f'''
+    <div class="tips-category">
+        <h3 class="tips-category-title">{group.icon} {group.category}</h3>
+        <ul class="tips-list">
+'''
+            for tip in group.tips:
+                html += f'<li>{tip}</li>'
+            html += '''
+        </ul>
+    </div>
+'''
+
+        html += '''
 </div>
 '''
         return html
@@ -896,6 +940,23 @@ body {
     background: #f0fdf4;
     padding: 15px;
     border-radius: 8px;
+}
+
+.tips-category {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed #bbf7d0;
+}
+
+.tips-category:last-child {
+    border-bottom: none;
+}
+
+.tips-category-title {
+    font-size: 13pt;
+    font-weight: bold;
+    color: #166534;
+    margin-bottom: 8px;
 }
 
 .tips-list {

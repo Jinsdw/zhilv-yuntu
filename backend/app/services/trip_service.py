@@ -287,6 +287,12 @@ class TripService:
         meta["generation_time"] = round(time.time() - started_at, 3)
         meta["needs_enrichment"] = False
         meta["preset_city"] = is_preset_city(dest)
+        # 保存原始请求中的特殊需求，供编辑时反推使用
+        meta["original_request"] = {
+            "with_kids": request.with_kids,
+            "with_elderly": request.with_elderly,
+            "has_disability": request.has_disability,
+        }
         trip = trip.model_copy(update={"metadata": meta})
 
         # 8. 持久化
@@ -850,13 +856,18 @@ class TripService:
         base_trip = history.response
         edit_warnings: List[str] = []
 
+        # 优先使用传入的 request，否则从历史记录中恢复原始请求
+        actual_request = request
+        if actual_request is None:
+            actual_request = getattr(history, "request", None)
+
         # 2. Agent 单日编辑（内部已实现降级：失败时返回原 trip + edit_failed）
         try:
             edited = self._agent.edit_day(
                 base_trip,
                 day_number,
                 instruction,
-                request=request,
+                request=actual_request,
                 context=context,
                 allow_fallback=True,
             )
@@ -974,6 +985,9 @@ class TripService:
                 "travelers": request.travelers,
                 "budget_level": str(request.budget_level),
                 "travel_style": str(request.travel_style),
+                "with_kids": request.with_kids,
+                "with_elderly": request.with_elderly,
+                "has_disability": request.has_disability,
                 "user_id": user_id or "",
             },
             sort_keys=True,

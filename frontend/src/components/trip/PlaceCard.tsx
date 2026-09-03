@@ -98,6 +98,15 @@ export default function PlaceCard({ item }: PlaceCardProps) {
             {place.suggested_duration > 0 && (
               <Tag style={{ marginInlineEnd: 0 }}>建议 {formatMinutes(place.suggested_duration)}</Tag>
             )}
+            {place.suitable_for_kids && (
+              <Tag color="green" style={{ marginInlineEnd: 0 }}>适合儿童</Tag>
+            )}
+            {place.suitable_for_elderly && (
+              <Tag color="gold" style={{ marginInlineEnd: 0 }}>适合老人</Tag>
+            )}
+            {place.has_wheelchair && (
+              <Tag color="cyan" style={{ marginInlineEnd: 0 }}>无障碍可达</Tag>
+            )}
             {item.booking_required && (
               <Tag color="orange" style={{ marginInlineEnd: 0 }}>
                 需预约

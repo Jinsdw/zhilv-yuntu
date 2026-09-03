@@ -87,6 +87,76 @@ NON_TRAVEL_TYPE_HINTS = (
 INDOOR_HINTS = ("博物馆", "美术馆", "展览", "室内", "商场", "温泉", "水族")
 OUTDOOR_HINTS = ("公园", "山", "湖", "海", "古镇", "风景", "户外", "徒步", "峡谷")
 
+# 适合儿童的关键词
+KIDS_FRIENDLY_HINTS = (
+    "亲子", "儿童", "乐园", "游乐场", "动物园", "海洋馆", "水族馆",
+    "科技馆", "博物馆", "植物园", "动物园", "主题公园", "欢乐谷",
+    "迪士尼", "方特", "长隆", "儿童公园", "少年宫", "科技馆",
+)
+
+# 适合老人的关键词（轻松、少步行、有休息点）
+ELDERLY_FRIENDLY_HINTS = (
+    "公园", "休闲", "广场", "园林", "寺庙", "道观", "博物馆",
+    "纪念馆", "故居", "茶馆", "古镇", "古街", "文化街",
+    "植物园", "动物园", "湖", "海滨", "江景",
+)
+
+# 不适合老人的关键词（高强度、爬山、长时间步行）
+ELDERLY_UNFRIENDLY_HINTS = (
+    "登山", "爬山", "徒步", "峡谷", "漂流", "探险", "攀岩",
+    "索道", "玻璃栈道", "高空", "蹦极", "滑雪", "冲浪",
+    "台阶多", "楼梯",
+)
+
+# 无障碍/行动不便友好关键词
+WHEELCHAIR_FRIENDLY_HINTS = (
+    "无障碍", "轮椅", "坡道", "电梯", "平缓", "平路",
+    "室内", "博物馆", "美术馆", "商场", "广场",
+)
+
+# 不适合行动不便的关键词
+WHEELCHAIR_UNFRIENDLY_HINTS = (
+    "登山", "爬山", "徒步", "峡谷", "漂流", "探险", "攀岩",
+    "台阶", "楼梯", "古道", "索道", "玻璃栈道", "高空",
+    "古镇石板路", "山路", "崎岖",
+)
+
+# 餐厅 - 儿童友好
+RESTAURANT_KIDS_FRIENDLY_HINTS = (
+    "亲子", "儿童", "家庭", "亲子餐厅", "儿童餐", "宝宝椅",
+    "乐园", "游乐", "肯德基", "麦当劳", "必胜客",
+)
+
+# 餐厅 - 老人友好
+RESTAURANT_ELDERLY_FRIENDLY_HINTS = (
+    "老字号", "传统", "清淡", "养生", "粥", "汤", "家常菜",
+    "茶楼", "茶馆", "素食",
+)
+
+# 餐厅 - 老人不友好
+RESTAURANT_ELDERLY_UNFRIENDLY_HINTS = (
+    "酒吧", "夜店", "烧烤", "辣", "麻辣", "火锅",
+    "蹦迪", "网红打卡",
+)
+
+# 酒店 - 儿童友好
+HOTEL_KIDS_FRIENDLY_HINTS = (
+    "亲子", "家庭", "儿童乐园", "亲子房", "家庭房",
+    "度假村", "度假酒店", "乐园",
+)
+
+# 酒店 - 老人友好
+HOTEL_ELDERLY_FRIENDLY_HINTS = (
+    "商务", "舒适", "养生", "温泉", "度假",
+    "电梯", "公寓", "连锁",
+)
+
+# 酒店 - 无障碍友好
+HOTEL_WHEELCHAIR_FRIENDLY_HINTS = (
+    "无障碍", "电梯", "平层", "一楼", "商务",
+    "国际", "连锁", "五星级", "四星",
+)
+
 STYLE_KEYWORDS: dict[str, list[str]] = {
     TravelStyle.RELAXED.value: ["公园", "古城", "慢游", "风景区"],
     TravelStyle.COMPACT.value: ["必去", "地标", "热门景点"],
@@ -157,6 +227,7 @@ class QueryPlan(BaseModel):
     include_outdoor: bool = True
     with_kids: bool = False
     with_elderly: bool = False
+    has_disability: bool = False
     travel_style: str = TravelStyle.RELAXED.value
 
 
@@ -184,6 +255,11 @@ class CandidatePlace(BaseModel):
     score: float = 0.0
     reason: str = ""
 
+    # 适合人群（从名称/标签推断）
+    suitable_for_kids: bool = True
+    suitable_for_elderly: bool = True
+    has_wheelchair_access: bool = False
+
     def to_prompt_dict(self) -> dict[str, Any]:
         coord = None
         if self.coordinate is not None:
@@ -209,6 +285,9 @@ class CandidatePlace(BaseModel):
             "telephone": self.telephone,
             "opening_hours": self.opening_hours,
             "score": round(self.score, 3),
+            "suitable_for_kids": self.suitable_for_kids,
+            "suitable_for_elderly": self.suitable_for_elderly,
+            "has_wheelchair_access": self.has_wheelchair_access,
         }
 
 
@@ -383,6 +462,16 @@ def build_query_plan(
                 label="flag:elderly",
             )
         )
+    if request.has_disability:
+        tasks.append(
+            SearchTask(
+                mode=SearchMode.KEYWORD,
+                keywords="无障碍景区",
+                limit=per_task_limit,
+                priority=43,
+                label="flag:disability",
+            )
+        )
 
     # 城市底盘：风景名胜 + 热门
     tasks.append(
@@ -451,6 +540,7 @@ def build_query_plan(
         include_outdoor=request.include_outdoor,
         with_kids=request.with_kids,
         with_elderly=request.with_elderly,
+        has_disability=request.has_disability,
         travel_style=style_key,
     )
 
@@ -480,15 +570,23 @@ def poi_to_candidate(poi: POIInfo, *, source: str = "amap") -> Optional[Candidat
     tags = [x for x in re.split(r"[,;|，、]", poi.tag or "") if x.strip()]
     if poi.type:
         tags.append(poi.type.split(";")[0] if ";" in poi.type else poi.type)
+    clean_tags = [t.strip() for t in tags if t.strip()][:8]
+    category = _category_from_poi(poi)
+
+    # 推断适合人群
+    suitable_for_kids, suitable_for_elderly, has_wheelchair_access = _infer_suitability(
+        name, clean_tags, category=category
+    )
+
     return CandidatePlace(
         place_id=place_id,
         name=name,
-        category=_category_from_poi(poi),
+        category=category,
         address=poi.address or "",
         coordinate=poi.location,
         district=poi.district or None,
         business_area=poi.business_area or "",
-        tags=[t.strip() for t in tags if t.strip()][:8],
+        tags=clean_tags,
         type_code=poi.type_code or "",
         rating=poi.rating,
         telephone=poi.telephone or "",
@@ -499,6 +597,9 @@ def poi_to_candidate(poi: POIInfo, *, source: str = "amap") -> Optional[Candidat
         cost=poi.cost,
         photos=list(poi.photos or []),
         source=source,
+        suitable_for_kids=suitable_for_kids,
+        suitable_for_elderly=suitable_for_elderly,
+        has_wheelchair_access=has_wheelchair_access,
     )
 
 
@@ -516,6 +617,62 @@ def _indoor_outdoor_label(place: CandidatePlace) -> str:
     if outdoor and not indoor:
         return "outdoor"
     return "unknown"
+
+
+def _infer_suitability(
+    name: str, tags: list[str], category: str = "景点"
+) -> tuple[bool, bool, bool]:
+    """
+    从名称和标签推断适合人群属性。
+    返回 (suitable_for_kids, suitable_for_elderly, has_wheelchair_access)
+    """
+    blob = f"{name} {' '.join(tags)}"
+
+    # 根据类别选择关键词组
+    if category == "餐厅":
+        kids_hints = RESTAURANT_KIDS_FRIENDLY_HINTS
+        elderly_friendly_hints = RESTAURANT_ELDERLY_FRIENDLY_HINTS
+        elderly_unfriendly_hints = RESTAURANT_ELDERLY_UNFRIENDLY_HINTS
+        wheelchair_friendly_hints = ()  # 餐厅较少有无障碍明确标注
+        wheelchair_unfriendly_hints = ()
+    elif category == "酒店":
+        kids_hints = HOTEL_KIDS_FRIENDLY_HINTS
+        elderly_friendly_hints = HOTEL_ELDERLY_FRIENDLY_HINTS
+        elderly_unfriendly_hints = ()  # 酒店一般都适合老人
+        wheelchair_friendly_hints = HOTEL_WHEELCHAIR_FRIENDLY_HINTS
+        wheelchair_unfriendly_hints = ()
+    else:
+        # 景点
+        kids_hints = KIDS_FRIENDLY_HINTS
+        elderly_friendly_hints = ELDERLY_FRIENDLY_HINTS
+        elderly_unfriendly_hints = ELDERLY_UNFRIENDLY_HINTS
+        wheelchair_friendly_hints = WHEELCHAIR_FRIENDLY_HINTS
+        wheelchair_unfriendly_hints = WHEELCHAIR_UNFRIENDLY_HINTS
+
+    # 儿童友好：有相关关键词时为 True，默认为 True（保守）
+    suitable_for_kids = True
+    if any(h in blob for h in kids_hints):
+        suitable_for_kids = True
+
+    # 老人友好：有适老关键词为 True，有不适老关键词为 False
+    suitable_for_elderly = True
+    if elderly_unfriendly_hints and any(h in blob for h in elderly_unfriendly_hints):
+        suitable_for_elderly = False
+    elif elderly_friendly_hints and any(h in blob for h in elderly_friendly_hints):
+        suitable_for_elderly = True
+
+    # 无障碍：有无障碍关键词为 True，有无障碍不利关键词则为 False
+    has_wheelchair_access = False
+    if wheelchair_friendly_hints and any(h in blob for h in wheelchair_friendly_hints):
+        has_wheelchair_access = True
+    if wheelchair_unfriendly_hints and any(h in blob for h in wheelchair_unfriendly_hints):
+        has_wheelchair_access = False
+
+    # 酒店默认有电梯（大部分酒店都有），放宽无障碍判断
+    if category == "酒店" and not has_wheelchair_access:
+        has_wheelchair_access = True  # 保守估计：酒店默认支持无障碍
+
+    return suitable_for_kids, suitable_for_elderly, has_wheelchair_access
 
 
 def score_candidate(place: CandidatePlace, plan: QueryPlan) -> tuple[float, str]:
@@ -563,12 +720,16 @@ def score_candidate(place: CandidatePlace, plan: QueryPlan) -> tuple[float, str]
         score -= 5.0
         reasons.append("室外冲突")
 
-    if plan.with_kids and any(x in blob for x in ("亲子", "儿童", "乐园")):
+    # 特殊需求打分（直接使用 place 的适合人群属性）
+    if plan.with_kids and place.suitable_for_kids:
         score += 1.2
         reasons.append("亲子友好")
-    if plan.with_elderly and any(x in blob for x in ("休闲", "公园", "博物馆")):
+    if plan.with_elderly and place.suitable_for_elderly:
         score += 0.8
-        reasons.append("适老")
+        reasons.append("适老友好")
+    if plan.has_disability and place.has_wheelchair_access:
+        score += 1.5
+        reasons.append("无障碍可达")
 
     return score, "；".join(reasons[:4])
 

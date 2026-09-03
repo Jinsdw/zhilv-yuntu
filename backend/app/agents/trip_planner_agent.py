@@ -42,6 +42,7 @@ from app.models.schemas import (
     TravelStyle,
     TripRequest,
     TripResponse,
+    TripTipCategory,
 )
 
 # ---------------------------------------------------------------------------
@@ -79,6 +80,79 @@ DEFAULT_TIME_SLOTS = [
     ("14:00", "16:30"),
     ("17:00", "19:00"),
 ]
+
+TIP_CATEGORIES: dict[str, str] = {
+    "出行准备": "🎒",
+    "交通出行": "🚗",
+    "省钱攻略": "💰",
+    "美食推荐": "🍜",
+    "住宿建议": "🏨",
+    "安全须知": "🛡️",
+    "文化礼仪": "🏛️",
+    "天气穿搭": "🌤️",
+    "实用工具": "📱",
+    "应急联系": "🚨",
+}
+
+CITY_SPECIFIC_TIPS: dict[str, dict[str, list[str]]] = {
+    "北京": {
+        "出行准备": ["故宫、国家博物馆等热门景点须提前7天在官方平台实名预约", "天安门广场安检较严，建议轻装出行，勿带大包"],
+        "交通出行": ["推荐办理北京一卡通，地铁公交通用且有折扣", "早晚高峰地铁限流，建议错峰出行或骑行共享单车"],
+        "文化礼仪": ["参观天安门、人民大会堂等场所请着装得体", "老城区胡同游览请尊重居民隐私，勿擅入民宅"],
+    },
+    "西安": {
+        "出行准备": ["兵马俑建议提前在线购票，旺季现场排队可能超2小时", "陕西历史博物馆免费票需提前在公众号预约"],
+        "交通出行": ["地铁2号线直达钟楼、小寨等核心区域，覆盖主要景点", "城墙骑行建议选晴天，单人车100元/3小时"],
+        "文化礼仪": ["回民街区域请尊重清真饮食禁忌，勿携外食入内", "碑林等文化遗址请勿触摸展品"],
+    },
+    "成都": {
+        "出行准备": ["大熊猫基地建议早7:30前到达，下午熊猫多在休息", "宽窄巷子、锦江等夜间灯光适合晚饭后散步"],
+        "交通出行": ["成都地铁覆盖宽窄巷子、武侯祠、春熙路等核心景点", "打车起价低，短途出行性价比高"],
+        "美食推荐": ["火锅推荐微辣/鸳鸯锅，不嗜辣者勿贸然点特辣", "建设路小吃街是本地人常去的美食集中地"],
+    },
+    "厦门": {
+        "出行准备": ['鼓浪屿船票须提前在「厦门轮渡」公众号预约，旺季易售罄', "防晒是刚需，海边紫外线强"],
+        "交通出行": ["岛内推荐骑行+公交，环岛路有专用自行车道", "鼓浪屿岛内禁止机动车，全程步行请穿舒适鞋"],
+        "住宿建议": ["曾厝垵、中山路周边民宿多，但旺季噪音大，建议选离主街远的"],
+    },
+    "大理": {
+        "出行准备": ["洱海环湖约130公里，建议分2天骑行或自驾", "高原紫外线强，防晒霜SPF50+必备"],
+        "交通出行": ["环洱海推荐租电动车或包车，公共交通班次少", "大理古城内步行即可，周边景点建议拼车"],
+        "文化礼仪": ["白族村寨参观请尊重当地风俗，三月街等节庆可体验", "洱海周边禁止游泳和垂钓，请遵守生态保护规定"],
+    },
+    "三亚": {
+        "出行准备": ["蜈支洲岛、南山寺等热门景点建议提前1天预约", "潜水需选择有资质的正规商家，警惕低价陷阱"],
+        "交通出行": ["推荐租车自驾，景点分散且公交不便", "机场到亚龙湾约40分钟，到海棠湾约50分钟"],
+        "安全须知": ["海边游泳请在划定区域，远离野海滩", "注意水母蜇伤，下水前观察水面情况"],
+    },
+}
+
+SEASON_TIPS: dict[str, list[str]] = {
+    "spring": ["春季温差大，建议洋葱式穿搭，随身带薄外套", "花粉过敏者请备抗过敏药物，赏花注意风向"],
+    "summer": ["夏季高温暴晒，防晒霜+遮阳帽+墨镜三件套必备", "午后易有雷阵雨，随身携带折叠雨伞", "注意防暑降温，及时补水，避免正午长时间户外活动"],
+    "autumn": ["秋季天高气爽但早晚温差大，建议带一件抓绒或薄羽绒", "干燥季节注意皮肤保湿和补水"],
+    "winter": ["冬季北方景点寒冷，羽绒服+保暖内衣+手套帽子必备", "路面可能结冰，穿防滑鞋，注意行走安全"],
+}
+
+TRAVEL_STYLE_TIPS: dict[str, list[str]] = {
+    "relaxed": ["行程节奏较慢，建议灵活安排，不必赶场打卡", "预留充足休息时间，享受旅程本身"],
+    "compact": ["行程紧凑，建议提前查好路线，利用碎片时间", "热门景点建议预约早场，避开高峰时段"],
+    "adventure": ["户外活动较多，注意装备齐全和体力分配", "建议购买旅行意外险，告知紧急联系人行程"],
+    "cultural": ["博物馆和历史遗迹建议提前了解背景知识，体验更深", "可预约专业讲解或租用语音导览，提升参观质量"],
+    "foodie": ["以美食为线索规划路线，注意餐厅营业时间和排队情况", "建议午餐错峰(11:00前或13:00后)避开排队高峰"],
+}
+
+BUDGET_TIPS: dict[str, list[str]] = {
+    "economy": ["善用景点免费日/免费时段，很多博物馆周一闭馆其他日免费", "住宿选地铁站附近的经济型连锁，交通便捷且性价比高", "午餐选本地人常去的小馆子，比景区周边便宜不少"],
+    "standard": ["景点门票提前在官方平台购买，常有早鸟优惠", "住宿选市中心三星/精品酒店，步行可达主要景点"],
+    "luxury": ["可考虑请当地私导定制行程，深度体验文化精髓", "高端酒店通常含早餐和下午茶，性价比比单独用餐高"],
+}
+
+SPECIAL_NEEDS_TIPS: dict[str, list[str]] = {
+    "with_kids": ["随身携带儿童常用药、创可贴、退烧贴", "每1-2小时安排一次休息，让孩子补充水分和零食", "餐厅优先选择有儿童座椅和儿童餐的店家"],
+    "with_elderly": ["随身携带日常用药和病历卡，以防不时之需", "每日景点不超过3个，安排充足休息时间", "选择有电梯和无障碍通道的景点，避免长时间爬坡"],
+    "has_disability": ["出行前致电景点确认无障碍通道、电梯、无障碍卫生间位置", "提前预约无障碍停车位或告知车站需要协助", "随身携带残障证件，多数景点可享免票或优惠"],
+}
 
 _UNSET = object()
 
@@ -161,6 +235,7 @@ class DraftItinerary(BaseModel):
     days: list[DraftDay] = Field(default_factory=list)
     trip_highlights: list[str] = Field(default_factory=list)
     trip_tips: list[str] = Field(default_factory=list)
+    special_needs_notes: list[str] = Field(default_factory=list)
     recommended_foods: list[str] = Field(default_factory=list)
     recommended_shopping: list[str] = Field(default_factory=list)
 
@@ -237,6 +312,7 @@ SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约�
   ],
   "trip_highlights": [],
   "trip_tips": [],
+  "special_needs_notes": [],
   "recommended_foods": [],
   "recommended_shopping": []
 }
@@ -244,8 +320,24 @@ SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约�
 5. 每日必须包含 lunch、dinner 和 hotel（不需要 breakfast）。
 6. 同一天的景点必须属于同一区域分组（district/cluster），不可跨区域安排。
 7. 餐厅优先选择当天景点所在区域的候选。
-8. 遵守偏好关键词与排除关键词；带儿童/老人时优先轻松、少步行的安排。
+8. 遵守偏好关键词与排除关键词。同行状态（特殊需求）是硬性约束，必须逐条满足，并将落实方式写入 special_needs_notes：
+   - 携带儿童：安排亲子友好、安全可控、路程适中的景点，避免高强度徒步；餐厅/住宿考虑儿童便利。
+   - 携带老人：安排轻松、少步行、有休息点的景点，控制每日体力消耗，避免长时间爬山。
+   - 行动不便：优先选择无障碍通道/电梯/坡道可达、台阶少、地面平缓的景点，避免爬山与长距离步行；每日 tips 需写明无障碍提示。
+   若没有任何同行状态，special_needs_notes 输出空数组 []。
 9. 时间按当日从早到晚排列，避免严重重叠。建议时段：上午09:00-11:00，午餐11:30-13:00，下午14:00-16:30，晚餐17:00-19:00。
+10. trip_tips 至少输出 8 条，覆盖以下维度（每条以"【分类】内容"格式书写，便于后续分组）：
+   - 【出行准备】行前准备、证件、预约、打包建议
+   - 【交通出行】当地交通方式、交通卡、停车、拼车注意
+   - 【省钱攻略】门票优惠、免费时段、性价比餐饮、免票景点
+   - 【美食推荐】必吃特色、避坑指南、卫生注意
+   - 【住宿建议】选区域、入住退房、安全须知
+   - 【安全须知】财物保管、人身安全、自然灾害防范
+   - 【文化礼仪】当地风俗、宗教禁忌、拍照礼仪
+   - 【天气穿搭】季节穿衣、防晒防寒、雨具建议
+   - 【实用工具】推荐APP、导航、翻译、支付方式
+   - 【应急联系】报警/急救电话、最近医院、领事馆
+   daily_tips 每日输出 2-3 条，针对当日具体行程给出实用提示（如该日景点预约提醒、穿搭建议、交通方案）。
 """
 
 
@@ -300,9 +392,9 @@ def build_user_prompt(
     if request.with_elderly:
         flags.append("携带老人")
     if request.has_disability:
-        flags.append("有行动不便人员")
+        flags.append("行动不便")
     if flags:
-        lines.append("特殊需求：" + "、".join(flags))
+        lines.append("特殊需求（硬性约束，必须满足并在 special_needs_notes 说明落实方式）：" + "、".join(flags))
     lines.append(
         f"室内景点：{'包含' if request.include_indoor else '尽量不含'}；"
         f"室外景点：{'包含' if request.include_outdoor else '尽量不含'}"
@@ -336,7 +428,7 @@ def build_user_prompt(
                     lines.append(
                         f"- [place_id={p.get('place_id')}] {p.get('name')} "
                         f"| 评分{p.get('rating') or '无'} "
-                        f"| {(f'门票{p.get("cost")}元' if p.get('cost') else '门票未知')} "
+                        f"| {('门票' + str(p.get('cost')) + '元') if p.get('cost') else '门票未知'} "
                         f"| 坐标({coord.get('latitude', '?')},{coord.get('longitude', '?')}) "
                         f"| {p.get('address') or ''}"
                     )
@@ -362,7 +454,7 @@ def build_user_prompt(
                     continue
                 lines.append(
                     f"- [place_id={p.get('place_id')}] {p.get('name')} "
-                    f"| {(f'人均{p.get("cost")}元' if p.get('cost') else '人均未知')} "
+                    f"| {('人均' + str(p.get('cost')) + '元') if p.get('cost') else '人均未知'} "
                     f"| {p.get('district') or '区域未知'} "
                     f"| 评分{p.get('rating') or '无'}"
                 )
@@ -377,7 +469,7 @@ def build_user_prompt(
                     continue
                 lines.append(
                     f"- [place_id={p.get('place_id')}] {p.get('name')} "
-                    f"| {(f'{p.get("cost")}元/晚' if p.get('cost') else '价格未知')} "
+                    f"| {(str(p.get('cost')) + '元/晚') if p.get('cost') else '价格未知'} "
                     f"| {p.get('district') or '区域未知'} "
                     f"| 评分{p.get('rating') or '无'}"
                 )
@@ -702,12 +794,30 @@ class TripPlannerAgent:
 
     @staticmethod
     def _derive_request_from_trip(trip: TripResponse) -> TripRequest:
-        """从 TripResponse 反推一个最小可用的 TripRequest（用于 edit_day 的单日裁剪）。"""
+        """从 TripResponse 反推一个最小可用的 TripRequest（用于 edit_day 的单日裁剪）。
+
+        尽量从 special_needs_notes 和 metadata 中反推原始特殊需求设置，
+        确保单日编辑时特殊需求约束仍然生效。
+        """
+        # 从 metadata 中反推（如果保存了原始请求信息）
+        meta = trip.metadata or {}
+        req_data = meta.get("original_request") or {}
+
+        # 从 special_needs_notes 反推特殊需求标志
+        notes = trip.special_needs_notes or []
+        notes_text = " ".join(notes)
+        with_kids = bool(req_data.get("with_kids")) or ("亲子" in notes_text or "儿童" in notes_text)
+        with_elderly = bool(req_data.get("with_elderly")) or ("老人" in notes_text or "适老" in notes_text)
+        has_disability = bool(req_data.get("has_disability")) or ("无障碍" in notes_text or "轮椅" in notes_text)
+
         return TripRequest(
             destination=trip.destination,
             start_date=trip.start_date,
             end_date=trip.end_date,
             travelers=1,
+            with_kids=with_kids,
+            with_elderly=with_elderly,
+            has_disability=has_disability,
         )
 
     # ------------------------------------------------------------------
@@ -787,6 +897,7 @@ class TripPlannerAgent:
                 src = DraftDay(day_number=i + 1, items=[])
             days.append(self._draft_day_to_model(
                 src, day_number=i + 1, day_date=d, candidate_index=candidate_index,
+                request=request,
             ))
 
         trip_name = draft.trip_name or f"{request.destination}{total_days}日游"
@@ -797,6 +908,20 @@ class TripPlannerAgent:
             round(sum(d.total_rating for d in days) / len(days), 1) if days else DEFAULT_RATING
         )
         overall_rating = min(5.0, max(0.0, overall_rating))
+
+        special_needs_notes = list(draft.special_needs_notes or [])
+        if not special_needs_notes:
+            notes = []
+            if request.with_kids:
+                notes.append("已优先安排亲子友好、安全可控的景点，避免高强度徒步与危险区域")
+                notes.append("行程节奏舒缓，预留充足休息与用餐时间，适合儿童体力")
+            if request.with_elderly:
+                notes.append("已安排轻松、少步行的路线，每日景点数量适中，控制体力消耗")
+                notes.append("优先选择有休息设施、平坦好走的景点，避免长时间爬山")
+            if request.has_disability:
+                notes.append("已优先选择无障碍通道可达、台阶少、地面平缓的景点")
+                notes.append("每日行程均考虑轮椅通行便利性，尽量减少步行距离")
+            special_needs_notes = notes
 
         return TripResponse(
             trip_id=str(uuid.uuid4()),
@@ -814,6 +939,7 @@ class TripPlannerAgent:
             ),
             trip_highlights=list(draft.trip_highlights or []),
             trip_tips=list(draft.trip_tips or []),
+            special_needs_notes=special_needs_notes,
             recommended_foods=list(draft.recommended_foods or []),
             recommended_shopping=list(draft.recommended_shopping or []),
             generated_at=datetime.now(),
@@ -829,6 +955,7 @@ class TripPlannerAgent:
         day_number: int,
         day_date: date,
         candidate_index: Optional[dict[str, Any]] = None,
+        request: Optional[TripRequest] = None,
     ) -> ItineraryDay:
         idx_map = candidate_index or {}
 
@@ -868,6 +995,10 @@ class TripPlannerAgent:
                     cover_image=(cp.get("photos") or [None])[0] if cp.get("photos") else None,
                     phone=cp.get("telephone") or None,
                     highlight=it.activity,
+                    # 适合人群（从候选池推断结果填充）
+                    suitable_for_kids=bool(cp.get("suitable_for_kids", True)),
+                    suitable_for_elderly=bool(cp.get("suitable_for_elderly", True)),
+                    has_wheelchair=bool(cp.get("has_wheelchair_access", False)),
                 )
             else:
                 # A类沉淀城市 / 降级路径：占位模式
@@ -912,6 +1043,9 @@ class TripPlannerAgent:
                     rating=cp.get("rating"),
                     images=photos[:3],
                     tags=list(cp.get("tags") or [])[:4],
+                    suitable_for_kids=bool(cp.get("suitable_for_kids", True)),
+                    suitable_for_elderly=bool(cp.get("suitable_for_elderly", True)),
+                    has_wheelchair=bool(cp.get("has_wheelchair_access", False)),
                 )
             return RestaurantInfo(
                 place_id=m.place_id or f"meal-{abs(hash(m.name)) % 100000}",
@@ -941,6 +1075,9 @@ class TripPlannerAgent:
                     images=photos[:3],
                     cover_image=photos[0] if photos else None,
                     tags=list(cp.get("tags") or [])[:4],
+                    suitable_for_kids=bool(cp.get("suitable_for_kids", True)),
+                    suitable_for_elderly=bool(cp.get("suitable_for_elderly", True)),
+                    has_wheelchair=bool(cp.get("has_wheelchair_access", True)),
                 )
             else:
                 hotel = HotelInfo(
@@ -973,6 +1110,20 @@ class TripPlannerAgent:
         )
         total_rating = min(5.0, max(0.0, total_rating))
 
+        # 根据特殊需求补充每日提示
+        extra_tips: list[str] = []
+        if request and request.with_kids:
+            extra_tips.append("带娃出行：请看好孩子，注意安全，备好水和零食")
+            extra_tips.append("每1-2小时安排休息，避免孩子过度疲劳哭闹")
+        if request and request.with_elderly:
+            extra_tips.append("老人出行：量力而行，累了及时休息，随身携带常用药品")
+            extra_tips.append("选择有座椅和遮阴的休息点，避免长时间暴晒或站立")
+        if request and request.has_disability:
+            extra_tips.append("无障碍提示：出行前确认景点无障碍设施开放情况，建议提前预约")
+            extra_tips.append("随身携带残障证件，多数景点可享免票或优惠")
+
+        daily_tips = list(src.daily_tips or []) + extra_tips
+
         return ItineraryDay(
             day_number=day_number,
             itinerary_date=day_date,
@@ -981,7 +1132,7 @@ class TripPlannerAgent:
             total_places=len(items),
             total_duration=duration,
             total_rating=total_rating,
-            daily_tips=list(src.daily_tips or []),
+            daily_tips=daily_tips,
             breakfast=None,  # 不安排早餐
             lunch=lunch_model,
             dinner=dinner_model,
@@ -1089,6 +1240,36 @@ class TripPlannerAgent:
                             f"少数{minority_pids}建议替换"
                         )
 
+            # 特殊需求硬约束校验（B类路径，有候选池时）
+            if idx_map and (request.with_kids or request.with_elderly or request.has_disability):
+                kept_items = []
+                replaced_count = 0
+                for it in day.items:
+                    cp = idx_map.get(it.place_id or "")
+                    if not cp:
+                        kept_items.append(it)
+                        continue
+                    suitable = True
+                    reasons = []
+                    if request.with_kids and not cp.get("suitable_for_kids", True):
+                        suitable = False
+                        reasons.append("不适合儿童")
+                    if request.with_elderly and not cp.get("suitable_for_elderly", True):
+                        suitable = False
+                        reasons.append("不适合老人")
+                    if request.has_disability and not cp.get("has_wheelchair_access", False):
+                        suitable = False
+                        reasons.append("无障碍不便")
+                    if suitable:
+                        kept_items.append(it)
+                    else:
+                        replaced_count += 1
+                        warnings.append(
+                            f"第{i}天 [{it.name}] 不符合特殊需求（{'/'.join(reasons)}），将替换"
+                        )
+                if replaced_count > 0:
+                    day.items = kept_items
+
             # 裁剪景点数
             if len(day.items) > max_places:
                 warnings.append(f"第{i}天景点 {len(day.items)}>{max_places}，已裁剪")
@@ -1104,14 +1285,28 @@ class TripPlannerAgent:
                     for pid in current_pids
                     if pid_to_cluster.get(pid)
                 }
-                same_cluster_pids: list[str] = []
-                other_pids: list[str] = []
+
+                def _is_suitable(pid: str) -> bool:
+                    """检查候选是否符合特殊需求硬约束。"""
+                    cp = idx_map.get(pid)
+                    if not isinstance(cp, dict):
+                        return True  # 无数据时默认通过
+                    if request.with_kids and not cp.get("suitable_for_kids", True):
+                        return False
+                    if request.with_elderly and not cp.get("suitable_for_elderly", True):
+                        return False
+                    if request.has_disability and not cp.get("has_wheelchair_access", False):
+                        # 行动不便时严格要求无障碍，若无则跳过
+                        return False
+                    return True
+
+                same_cluster_suitable: list[str] = []
+                same_cluster_other: list[str] = []
+                other_cluster_suitable: list[str] = []
+                other_cluster_other: list[str] = []
+
                 for cluster_name, pids in clusters.items():
-                    bucket = (
-                        same_cluster_pids
-                        if cluster_name in existing_clusters
-                        else other_pids
-                    )
+                    in_same = cluster_name in existing_clusters
                     for pid in pids:
                         if pid in used_global_scenic or pid in current_pids:
                             continue
@@ -1121,7 +1316,17 @@ class TripPlannerAgent:
                         name = cp.get("name", "")
                         if excluded and any(ex in name for ex in excluded):
                             continue
-                        bucket.append(pid)
+                        suitable = _is_suitable(pid)
+                        if in_same:
+                            if suitable:
+                                same_cluster_suitable.append(pid)
+                            else:
+                                same_cluster_other.append(pid)
+                        else:
+                            if suitable:
+                                other_cluster_suitable.append(pid)
+                            else:
+                                other_cluster_other.append(pid)
 
                 def _rating_key(pid: str) -> float:
                     cp = idx_map.get(pid) or {}
@@ -1130,12 +1335,19 @@ class TripPlannerAgent:
                     except (TypeError, ValueError):
                         return 0.0
 
-                same_cluster_pids.sort(key=_rating_key)
-                other_pids.sort(key=_rating_key)
-                picked = same_cluster_pids[:need]
-                remaining = need - len(picked)
-                if remaining > 0:
-                    picked += other_pids[:remaining]
+                # 优先级：同区域符合特殊需求 > 同区域其他 > 跨区域符合 > 跨区域其他
+                same_cluster_suitable.sort(key=_rating_key)
+                same_cluster_other.sort(key=_rating_key)
+                other_cluster_suitable.sort(key=_rating_key)
+                other_cluster_other.sort(key=_rating_key)
+
+                picked: list[str] = []
+                for bucket in [same_cluster_suitable, same_cluster_other,
+                               other_cluster_suitable, other_cluster_other]:
+                    if len(picked) >= need:
+                        break
+                    remaining = need - len(picked)
+                    picked += bucket[:remaining]
 
                 for pid in picked:
                     cp = idx_map[pid]
@@ -1160,46 +1372,99 @@ class TripPlannerAgent:
                     used_global_scenic.add(pid)
                     warnings.append(f"第{i}天景点不足，已自动补选: {name}")
 
-            # 食宿缺失补选（B类路径）
-            if food_pool and not day.lunch:
-                # 取第一个未用过的餐饮候选
-                used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
+            # 食宿缺失补选（B类路径）- 优先选择符合特殊需求的
+            has_special_needs = request.with_kids or request.with_elderly or request.has_disability
+
+            def _food_is_suitable(fp: dict) -> bool:
+                """检查餐厅是否符合特殊需求。"""
+                if not has_special_needs:
+                    return True
+                if request.with_kids and not fp.get("suitable_for_kids", True):
+                    return False
+                if request.with_elderly and not fp.get("suitable_for_elderly", True):
+                    return False
+                # 餐厅无障碍一般不做强约束，只做优先排序
+                return True
+
+            def _hotel_is_suitable(hp: dict) -> bool:
+                """检查酒店是否符合特殊需求。"""
+                if not has_special_needs:
+                    return True
+                if request.with_kids and not hp.get("suitable_for_kids", True):
+                    return False
+                if request.with_elderly and not hp.get("suitable_for_elderly", True):
+                    return False
+                if request.has_disability and not hp.get("has_wheelchair_access", False):
+                    return False
+                return True
+
+            def _pick_best_food(used_pids: set[str]) -> Optional[dict]:
+                """优先选择符合特殊需求的餐厅，其次选评分最高的。"""
+                suitable = []
+                others = []
                 for fp in food_pool:
-                    pid = fp.get("place_id") if isinstance(fp, dict) else None
-                    if pid and pid not in used_pids:
-                        day.lunch = DraftMeal(
-                            name=fp.get("name", ""),
-                            place_id=pid,
-                            cuisine_type=fp.get("category", "本地菜"),
-                            avg_price=float(fp.get("cost") or 50),
-                        )
-                        used_pids.add(pid)
-                        warnings.append(f"第{i}天午餐缺失，已自动补选: {fp.get('name')}")
-                        break
+                    if not isinstance(fp, dict):
+                        continue
+                    pid = fp.get("place_id")
+                    if not pid or pid in used_pids:
+                        continue
+                    if _food_is_suitable(fp):
+                        suitable.append(fp)
+                    else:
+                        others.append(fp)
+                # 按评分排序
+                suitable.sort(key=lambda x: -(x.get("rating") or 0))
+                others.sort(key=lambda x: -(x.get("rating") or 0))
+                pool = suitable + others
+                return pool[0] if pool else None
+
+            if food_pool and not day.lunch:
+                used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
+                best = _pick_best_food(used_pids)
+                if best:
+                    day.lunch = DraftMeal(
+                        name=best.get("name", ""),
+                        place_id=best.get("place_id", ""),
+                        cuisine_type=best.get("category", "本地菜"),
+                        avg_price=float(best.get("cost") or 50),
+                    )
+                    used_pids.add(best.get("place_id", ""))
+                    warnings.append(f"第{i}天午餐缺失，已自动补选: {best.get('name')}")
             if food_pool and not day.dinner:
                 used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
-                for fp in food_pool:
-                    pid = fp.get("place_id") if isinstance(fp, dict) else None
-                    if pid and pid not in used_pids:
-                        day.dinner = DraftMeal(
-                            name=fp.get("name", ""),
-                            place_id=pid,
-                            cuisine_type=fp.get("category", "本地菜"),
-                            avg_price=float(fp.get("cost") or 80),
-                        )
-                        warnings.append(f"第{i}天晚餐缺失，已自动补选: {fp.get('name')}")
-                        break
-            if hotel_pool and not day.hotel:
-                # 取第一个酒店候选
-                hp = hotel_pool[0] if hotel_pool else None
-                if hp and isinstance(hp, dict):
-                    day.hotel = DraftHotel(
-                        name=hp.get("name", ""),
-                        place_id=hp.get("place_id", ""),
-                        hotel_type="舒适型",
-                        price=float(hp.get("cost") or 300),
+                best = _pick_best_food(used_pids)
+                if best:
+                    day.dinner = DraftMeal(
+                        name=best.get("name", ""),
+                        place_id=best.get("place_id", ""),
+                        cuisine_type=best.get("category", "本地菜"),
+                        avg_price=float(best.get("cost") or 80),
                     )
-                    warnings.append(f"第{i}天酒店缺失，已自动补选: {hp.get('name')}")
+                    warnings.append(f"第{i}天晚餐缺失，已自动补选: {best.get('name')}")
+
+            if hotel_pool and not day.hotel:
+                # 优先选择符合特殊需求的酒店
+                suitable_hotels = []
+                other_hotels = []
+                for hp in hotel_pool:
+                    if not isinstance(hp, dict):
+                        continue
+                    if _hotel_is_suitable(hp):
+                        suitable_hotels.append(hp)
+                    else:
+                        other_hotels.append(hp)
+                suitable_hotels.sort(key=lambda x: -(x.get("rating") or 0))
+                other_hotels.sort(key=lambda x: -(x.get("rating") or 0))
+                all_hotels = suitable_hotels + other_hotels
+                best = all_hotels[0] if all_hotels else None
+                if best:
+                    day.hotel = DraftHotel(
+                        name=best.get("name", ""),
+                        place_id=best.get("place_id", ""),
+                        hotel_type="舒适型",
+                        price=float(best.get("cost") or 300),
+                    )
+                    warnings.append(f"第{i}天酒店缺失，已自动补选: {best.get('name')}")
 
             # 强制清除 breakfast（不安排早餐）
             day.breakfast = None
@@ -1246,6 +1511,139 @@ class TripPlannerAgent:
             prev_end = _parse_time_minutes(it.end_time)
             fixed.append(it)
         return fixed
+
+    # ---------- 贴士增强 ----------
+
+    def _build_enriched_tips(
+        self,
+        raw_tips: list[str],
+        request: TripRequest,
+        destination: Optional[str] = None,
+    ) -> tuple[list[str], list[TripTipCategory]]:
+        """将 LLM 生成的扁平贴士 + 上下文信息合成为结构化分类贴士。
+
+        返回 (flat_tips, grouped_tips)：
+        - flat_tips: 兼容旧字段的扁平字符串列表
+        - grouped_tips: List[TripTipCategory]，按 TIP_CATEGORIES 顺序排列
+        """
+        dest = destination or request.destination or ""
+        grouped: dict[str, list[str]] = {cat: [] for cat in TIP_CATEGORIES}
+
+        # 1) 解析 LLM 生成的贴士（支持"【分类】内容"格式或无格式纯文本）
+        for tip in raw_tips:
+            tip = tip.strip()
+            if not tip:
+                continue
+            matched = False
+            for cat in TIP_CATEGORIES:
+                if f"【{cat}】" in tip:
+                    content = tip.replace(f"【{cat}】", "").strip()
+                    if content and content not in grouped[cat]:
+                        grouped[cat].append(content)
+                    matched = True
+                    break
+            if not matched:
+                # 尝试关键词匹配
+                tip_lower = tip
+                keyword_map = {
+                    "出行准备": ["准备", "预约", "证件", "打包", "行前"],
+                    "交通出行": ["交通", "地铁", "公交", "打车", "租车", "停车", "骑行"],
+                    "省钱攻略": ["省钱", "优惠", "免费", "折扣", "性价比"],
+                    "美食推荐": ["美食", "吃", "餐厅", "小吃", "火锅"],
+                    "住宿建议": ["住宿", "酒店", "民宿", "入住", "退房"],
+                    "安全须知": ["安全", "财物", "防盗", "危险", "急救"],
+                    "文化礼仪": ["礼仪", "风俗", "禁忌", "宗教", "拍照"],
+                    "天气穿搭": ["天气", "穿搭", "防晒", "保暖", "穿衣", "雨具"],
+                    "实用工具": ["APP", "应用", "导航", "翻译", "支付", "工具"],
+                    "应急联系": ["报警", "急救", "医院", "领事馆", "应急", "110", "120", "119"],
+                }
+                for cat, keywords in keyword_map.items():
+                    if any(kw in tip_lower for kw in keywords):
+                        if tip not in grouped[cat]:
+                            grouped[cat].append(tip)
+                        matched = True
+                        break
+                if not matched:
+                    if tip not in grouped["出行准备"]:
+                        grouped["出行准备"].append(tip)
+
+        # 2) 追加城市专属贴士
+        city_tips = CITY_SPECIFIC_TIPS.get(dest, {})
+        for cat, tips_list in city_tips.items():
+            for t in tips_list:
+                if t not in grouped.get(cat, []):
+                    grouped.setdefault(cat, []).append(t)
+
+        # 3) 追加季节贴士
+        month = request.start_date.month if request.start_date else 1
+        if month in (3, 4, 5):
+            season = "spring"
+        elif month in (6, 7, 8):
+            season = "summer"
+        elif month in (9, 10, 11):
+            season = "autumn"
+        else:
+            season = "winter"
+        for t in SEASON_TIPS.get(season, []):
+            if t not in grouped["天气穿搭"]:
+                grouped["天气穿搭"].append(t)
+
+        # 4) 追加旅行风格贴士
+        style_key = getattr(request.travel_style, "value", str(request.travel_style))
+        for t in TRAVEL_STYLE_TIPS.get(str(style_key), []):
+            if t not in grouped["出行准备"]:
+                grouped["出行准备"].append(t)
+
+        # 5) 追加预算贴士
+        budget_key = getattr(request.budget_level, "value", str(request.budget_level))
+        for t in BUDGET_TIPS.get(str(budget_key), []):
+            if t not in grouped["省钱攻略"]:
+                grouped["省钱攻略"].append(t)
+
+        # 6) 追加特殊需求贴士
+        if request.with_kids:
+            for t in SPECIAL_NEEDS_TIPS.get("with_kids", []):
+                if t not in grouped["安全须知"]:
+                    grouped["安全须知"].append(t)
+        if request.with_elderly:
+            for t in SPECIAL_NEEDS_TIPS.get("with_elderly", []):
+                if t not in grouped["安全须知"]:
+                    grouped["安全须知"].append(t)
+        if request.has_disability:
+            for t in SPECIAL_NEEDS_TIPS.get("has_disability", []):
+                if t not in grouped["安全须知"]:
+                    grouped["安全须知"].append(t)
+
+        # 7) 补充通用兜底贴士（仅当该分类为空时）
+        default_tips = {
+            "出行准备": ["出行前确认景点开放时间与预约要求，热门景点建议提前7天预约"],
+            "交通出行": ["建议下载离线地图，以防信号不佳时导航中断"],
+            "省钱攻略": ["关注景点官方公众号，常有限时优惠和免票活动"],
+            "美食推荐": ["避开景区门口的餐厅，往巷子里走200米往往性价比更高"],
+            "住宿建议": ["入住时确认退房时间，部分酒店可免费延迟退房"],
+            "安全须知": ["贵重物品随身携带，酒店保险箱存放护照和多余现金"],
+            "文化礼仪": ["进入宗教场所请着装得体，部分场所需脱鞋或戴头巾"],
+            "天气穿搭": ["建议穿舒适运动鞋，每日步行量可能超过1万步"],
+            "实用工具": ["建议安装当地公交/地铁APP，比通用地图更准实时班次"],
+            "应急联系": ["全国统一报警电话110，急救120，火警119"],
+        }
+        for cat, tips_list in default_tips.items():
+            if not grouped.get(cat):
+                grouped[cat] = tips_list[:]
+
+        # 8) 构建 TripTipCategory 列表（按 TIP_CATEGORIES 顺序）
+        result_grouped: list[TripTipCategory] = []
+        flat: list[str] = []
+        for cat, icon in TIP_CATEGORIES.items():
+            tips = grouped.get(cat, [])
+            if tips:
+                result_grouped.append(
+                    TripTipCategory(category=cat, icon=icon, tips=tips)
+                )
+                for t in tips:
+                    flat.append(f"【{cat}】{t}")
+
+        return flat, result_grouped
 
     # ---------- 预算与摘要 ----------
 
@@ -1335,7 +1733,14 @@ class TripPlannerAgent:
             if names:
                 highlights = [f"打卡{'、'.join(names)}"]
         if not tips:
-            tips = ["出行前确认开放时间与预约要求", "合理安排体力，预留交通缓冲"]
+            tips = [
+                "【出行准备】出行前确认景点开放时间与预约要求，热门景点建议提前7天预约",
+                "【出行准备】合理安排体力，预留交通缓冲时间",
+                "【交通出行】建议下载离线地图，以防信号不佳时导航中断",
+                "【省钱攻略】关注景点官方公众号，常有限时优惠和免票活动",
+                "【安全须知】贵重物品随身携带，酒店保险箱存放护照和多余现金",
+                "【应急联系】全国统一报警电话110，急救120，火警119",
+            ]
         if not foods:
             for d in trip.days:
                 for meal in (d.lunch, d.dinner):
@@ -1343,6 +1748,10 @@ class TripPlannerAgent:
                         foods.append(meal.name)
                 if len(foods) >= 5:
                     break
+
+        flat_tips, grouped_tips = self._build_enriched_tips(
+            tips, request, destination=trip.destination
+        )
 
         style = _style_cn(request.travel_style)
         trip_name = trip.trip_name or f"{request.destination}{total_days}日{style}行程"
@@ -1352,7 +1761,8 @@ class TripPlannerAgent:
                 "trip_name": trip_name,
                 "budget": budget,
                 "trip_highlights": highlights,
-                "trip_tips": tips,
+                "trip_tips": flat_tips,
+                "trip_tips_grouped": grouped_tips,
                 "recommended_foods": foods[:8],
                 "metadata": {
                     **(trip.metadata or {}),
@@ -1396,12 +1806,35 @@ class TripPlannerAgent:
             logger.warning(f"降级预取失败: {e}")
 
         if not place_names:
-            place_names = [
-                f"{request.destination}市区漫步",
-                f"{request.destination}特色街区",
-                f"{request.destination}当地餐厅",
-                f"{request.destination}夜景点",
-            ]
+            # 根据特殊需求调整降级默认景点
+            if request.with_kids:
+                place_names = [
+                    f"{request.destination}亲子公园",
+                    f"{request.destination}科技馆",
+                    f"{request.destination}动物园",
+                    f"{request.destination}儿童乐园",
+                ]
+            elif request.with_elderly:
+                place_names = [
+                    f"{request.destination}休闲公园",
+                    f"{request.destination}博物馆",
+                    f"{request.destination}古镇漫步",
+                    f"{request.destination}文化广场",
+                ]
+            elif request.has_disability:
+                place_names = [
+                    f"{request.destination}博物馆",
+                    f"{request.destination}城市广场",
+                    f"{request.destination}美术馆",
+                    f"{request.destination}商场步行街",
+                ]
+            else:
+                place_names = [
+                    f"{request.destination}市区漫步",
+                    f"{request.destination}特色街区",
+                    f"{request.destination}当地餐厅",
+                    f"{request.destination}夜景点",
+                ]
 
         total_days = (request.end_date - request.start_date).days + 1
         max_places = request.max_places_per_day
@@ -1421,14 +1854,27 @@ class TripPlannerAgent:
                         name=name,
                         category="景点",
                         activity="游览",
-                        tips=["降级模板生成，建议核对开放时间"],
+                        tips=["建议提前查询开放时间和门票政策", "降级模板生成，实地信息以官方为准"],
                     )
                 )
+            # 每日特殊需求提示
+            daily_extra_tips: list[str] = []
+            if request.with_kids:
+                daily_extra_tips.append("带娃出行：请看好孩子，注意安全，备好水和零食")
+            if request.with_elderly:
+                daily_extra_tips.append("老人出行：量力而行，累了及时休息，随身携带常用药品")
+            if request.has_disability:
+                daily_extra_tips.append("无障碍提示：出行前确认景点无障碍设施开放情况")
+
             days.append(
                 DraftDay(
                     day_number=i + 1,
                     day_theme=f"第{i + 1}天",
                     items=items,
+                    daily_tips=[
+                        "降级模板生成，建议核对开放时间和预约要求",
+                        "当日景点间距较远时建议提前规划交通路线",
+                    ] + daily_extra_tips,
                     lunch=DraftMeal(
                         name=f"{request.destination}特色午餐",
                         avg_price=float(request.restaurant_budget_per_meal),
@@ -1448,11 +1894,30 @@ class TripPlannerAgent:
                 )
             )
 
+        # 特殊需求说明
+        special_notes: list[str] = []
+        if request.with_kids:
+            special_notes.append("已优先安排亲子友好、安全可控的景点，避免高强度徒步")
+            special_notes.append("行程节奏舒缓，预留充足休息与用餐时间")
+        if request.with_elderly:
+            special_notes.append("已安排轻松、少步行的路线，每日景点数量适中")
+            special_notes.append("优先选择有休息设施、平坦好走的景点")
+        if request.has_disability:
+            special_notes.append("已优先选择无障碍可达、台阶少、地面平缓的景点")
+            special_notes.append("每日行程均考虑轮椅通行便利性")
+
         draft = DraftItinerary(
             trip_name=f"{request.destination}{total_days}日行程（降级）",
             days=days,
             trip_highlights=["基于攻略模板的兜底行程"],
-            trip_tips=["本方案为降级生成，请以实地信息为准", "建议重新生成以获得更优规划"],
+            trip_tips=[
+                "本方案为降级生成，景点名称和安排请以实地信息为准",
+                "建议重新生成以获得更优规划",
+                "【出行准备】出行前务必确认各景点最新开放时间和预约政策",
+                "【交通出行】建议提前规划当日交通路线，预留通勤时间",
+                "【安全须知】保管好个人财物，尤其在人流密集的景区",
+            ],
+            special_needs_notes=special_notes,
             recommended_foods=[],
         )
         if context:

@@ -78,6 +78,28 @@ function MealCard({ label, meal }: { label: string; meal: RestaurantInfo }) {
                   {tag}
                 </Tag>
               ))}
+              {meal.suitable_for_kids && (
+                <Tag color="green" style={{ marginInlineEnd: 0, fontSize: 12 }}>适合儿童</Tag>
+              )}
+              {meal.suitable_for_elderly && (
+                <Tag color="gold" style={{ marginInlineEnd: 0, fontSize: 12 }}>适合老人</Tag>
+              )}
+              {meal.has_wheelchair && (
+                <Tag color="cyan" style={{ marginInlineEnd: 0, fontSize: 12 }}>无障碍</Tag>
+              )}
+            </Flex>
+          )}
+          {tags.length === 0 && (meal.suitable_for_kids || meal.suitable_for_elderly || meal.has_wheelchair) && (
+            <Flex wrap gap={4}>
+              {meal.suitable_for_kids && (
+                <Tag color="green" style={{ marginInlineEnd: 0, fontSize: 12 }}>适合儿童</Tag>
+              )}
+              {meal.suitable_for_elderly && (
+                <Tag color="gold" style={{ marginInlineEnd: 0, fontSize: 12 }}>适合老人</Tag>
+              )}
+              {meal.has_wheelchair && (
+                <Tag color="cyan" style={{ marginInlineEnd: 0, fontSize: 12 }}>无障碍</Tag>
+              )}
             </Flex>
           )}
 
@@ -134,7 +156,7 @@ function HotelCard({ hotel }: { hotel: HotelInfo }) {
             {hotel.rating != null && <span>评分 {hotel.rating.toFixed(1)}</span>}
           </Flex>
 
-          {(hotel.has_breakfast || hotel.has_wifi || hotel.has_parking) && (
+          {(hotel.has_breakfast || hotel.has_wifi || hotel.has_parking || hotel.suitable_for_kids || hotel.suitable_for_elderly || hotel.has_wheelchair) && (
             <Flex wrap gap={4}>
               {hotel.has_breakfast && (
                 <Tag color="green" style={{ marginInlineEnd: 0, fontSize: 12 }}>
@@ -143,6 +165,15 @@ function HotelCard({ hotel }: { hotel: HotelInfo }) {
               )}
               {hotel.has_wifi && <Tag style={{ marginInlineEnd: 0, fontSize: 12 }}>WiFi</Tag>}
               {hotel.has_parking && <Tag style={{ marginInlineEnd: 0, fontSize: 12 }}>停车场</Tag>}
+              {hotel.suitable_for_kids && (
+                <Tag color="green" style={{ marginInlineEnd: 0, fontSize: 12 }}>适合儿童</Tag>
+              )}
+              {hotel.suitable_for_elderly && (
+                <Tag color="gold" style={{ marginInlineEnd: 0, fontSize: 12 }}>适合老人</Tag>
+              )}
+              {hotel.has_wheelchair && (
+                <Tag color="cyan" style={{ marginInlineEnd: 0, fontSize: 12 }}>无障碍</Tag>
+              )}
             </Flex>
           )}
 

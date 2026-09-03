@@ -162,6 +162,18 @@ export default function Result() {
               ))}
             </Flex>
           )}
+          {trip.special_needs_notes?.length > 0 && (
+            <Flex wrap gap={6} align="center">
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                特殊需求保障：
+              </Typography.Text>
+              {trip.special_needs_notes.map((note) => (
+                <Tag key={note} color="orange" style={{ marginInlineEnd: 0 }}>
+                  {note}
+                </Tag>
+              ))}
+            </Flex>
+          )}
           {trip.recommended_foods?.length > 0 && (
             <Flex wrap gap={6} align="center">
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -212,12 +224,43 @@ export default function Result() {
       <MapPanel days={trip.days ?? []} />
 
       {trip.trip_tips?.length > 0 && (
-        <Card title="行程贴士">
-          <ul style={{ margin: 0, paddingInlineStart: 20, color: 'inherit' }}>
-            {trip.trip_tips.map((tip) => (
-              <li key={tip}>{tip}</li>
-            ))}
-          </ul>
+        <Card title="💡 行程贴士">
+          {trip.trip_tips_grouped?.length ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {trip.trip_tips_grouped.map((group) => (
+                <div
+                  key={group.category}
+                  style={{
+                    borderBottom: '1px dashed #d9f2d9',
+                    paddingBottom: 12,
+                  }}
+                >
+                  <Tag
+                    color="green"
+                    style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 8 }}
+                  >
+                    {group.icon} {group.category}
+                  </Tag>
+                  <ul style={{ margin: '8px 0 0', paddingInlineStart: 20, color: 'inherit' }}>
+                    {group.tips.map((tip, idx) => (
+                      <li
+                        key={`${group.category}-${idx}`}
+                        style={{ marginBottom: 4, lineHeight: 1.7 }}
+                      >
+                        {tip}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <ul style={{ margin: 0, paddingInlineStart: 20, color: 'inherit' }}>
+              {trip.trip_tips.map((tip) => (
+                <li key={tip}>{tip}</li>
+              ))}
+            </ul>
+          )}
         </Card>
       )}
 

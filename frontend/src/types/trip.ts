@@ -77,6 +77,10 @@ export interface TripResponse {
   trip_highlights: string[]
   /** 行程贴士 */
   trip_tips: string[]
+  /** 结构化分类行程贴士 */
+  trip_tips_grouped?: TripTipCategory[]
+  /** 特殊需求（同行状态）满足说明 */
+  special_needs_notes?: string[]
   /** 天气出行建议（大模型基于天气预报生成） */
   weather_suggestions?: string[]
   /** 推荐美食 */
@@ -97,4 +101,14 @@ export interface TripResponse {
   version: string
   /** 附加元数据（token 统计、降级警告等） */
   metadata: Record<string, unknown>
+}
+
+/** 结构化行程贴士分类 */
+export interface TripTipCategory {
+  /** 贴士分类名称 */
+  category: string
+  /** 分类图标 emoji */
+  icon: string
+  /** 该分类下的贴士列表 */
+  tips: string[]
 }

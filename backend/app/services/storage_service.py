@@ -366,6 +366,7 @@ class StorageService:
                 allowed_fields = {
                     "is_favorite", "user_rating", "user_feedback",
                     "exported_formats", "is_shared", "share_code",
+                    "response_data", "request_data",
                 }
                 
                 for key, value in updates.items():

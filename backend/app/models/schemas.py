@@ -187,6 +187,11 @@ class RestaurantInfo(BaseModel):
     # 预订
     support_booking: bool = Field(default=False, description="是否支持预订")
 
+    # 适合人群
+    suitable_for_kids: bool = Field(default=True, description="是否适合儿童")
+    suitable_for_elderly: bool = Field(default=True, description="是否适合老人")
+    has_wheelchair: bool = Field(default=False, description="是否有无障碍设施")
+
 
 class HotelInfo(BaseModel):
     """酒店信息模型"""
@@ -223,6 +228,11 @@ class HotelInfo(BaseModel):
     
     # 特色
     tags: List[str] = Field(default_factory=list, description="特色标签")
+
+    # 适合人群
+    suitable_for_kids: bool = Field(default=True, description="是否适合儿童")
+    suitable_for_elderly: bool = Field(default=True, description="是否适合老人")
+    has_wheelchair: bool = Field(default=True, description="是否有无障碍设施")
 
 
 class WeatherInfo(BaseModel):
@@ -378,6 +388,14 @@ class ItineraryDay(BaseModel):
     hotel: Optional[HotelInfo] = Field(default=None, description="住宿酒店")
 
 
+class TripTipCategory(BaseModel):
+    """结构化行程贴士分类"""
+
+    category: str = Field(..., description="贴士分类名称")
+    icon: str = Field(default="💡", description="分类图标 emoji")
+    tips: List[str] = Field(default_factory=list, description="该分类下的贴士列表")
+
+
 class TripResponse(BaseModel):
     """行程规划响应模型"""
     
@@ -403,6 +421,10 @@ class TripResponse(BaseModel):
     # 行程特点
     trip_highlights: List[str] = Field(default_factory=list, description="行程亮点")
     trip_tips: List[str] = Field(default_factory=list, description="行程贴士")
+    trip_tips_grouped: List[TripTipCategory] = Field(default_factory=list, description="结构化分类行程贴士")
+
+    # 同行状态（特殊需求）满足说明
+    special_needs_notes: List[str] = Field(default_factory=list, description="特殊需求满足说明")
 
     # 天气出行建议（大模型基于天气预报生成）
     weather_suggestions: List[str] = Field(default_factory=list, description="天气出行建议")
