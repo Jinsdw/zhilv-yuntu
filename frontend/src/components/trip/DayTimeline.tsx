@@ -7,6 +7,7 @@ import { Empty, Flex, Tag, Timeline, Typography } from 'antd'
 import type { ItineraryDay } from '@/types'
 import { formatDateCN, formatMinutes, formatMoney } from '@/utils/format'
 
+import FoodStayPanel from './FoodStayPanel'
 import PlaceCard from './PlaceCard'
 
 interface DayTimelineProps {
@@ -14,9 +15,8 @@ interface DayTimelineProps {
 }
 
 export default function DayTimeline({ day }: DayTimelineProps) {
-  if (!day.items?.length) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当天暂无安排" />
-  }
+  const hasItems = day.items?.length > 0
+  const hasFoodStay = Boolean(day.breakfast || day.lunch || day.dinner || day.hotel)
 
   return (
     <Flex vertical gap={12}>
@@ -30,18 +30,24 @@ export default function DayTimeline({ day }: DayTimelineProps) {
         </Typography.Text>
       </Flex>
 
-      <Timeline
-        items={day.items.map((item) => ({
-          children: (
-            <div>
-              <Typography.Text strong type="secondary" style={{ fontSize: 13 }}>
-                {item.start_time} - {item.end_time}
-              </Typography.Text>
-              <PlaceCard item={item} />
-            </div>
-          ),
-        }))}
-      />
+      {hasItems ? (
+        <Timeline
+          items={day.items.map((item) => ({
+            children: (
+              <div>
+                <Typography.Text strong type="secondary" style={{ fontSize: 13 }}>
+                  {item.start_time} - {item.end_time}
+                </Typography.Text>
+                <PlaceCard item={item} />
+              </div>
+            ),
+          }))}
+        />
+      ) : (
+        !hasFoodStay && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当天暂无安排" />
+      )}
+
+      <FoodStayPanel day={day} />
 
       {day.daily_tips?.length > 0 && (
         <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>

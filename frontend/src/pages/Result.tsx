@@ -162,6 +162,18 @@ export default function Result() {
               ))}
             </Flex>
           )}
+          {trip.recommended_foods?.length > 0 && (
+            <Flex wrap gap={6} align="center">
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                推荐美食：
+              </Typography.Text>
+              {trip.recommended_foods.slice(0, 6).map((food) => (
+                <Tag key={food} color="gold" style={{ marginInlineEnd: 0 }}>
+                  {food}
+                </Tag>
+              ))}
+            </Flex>
+          )}
         </Flex>
       </Card>
 
