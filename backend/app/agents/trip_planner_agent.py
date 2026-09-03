@@ -54,6 +54,10 @@ DEFAULT_MAX_TOKENS = 4096
 PLACEHOLDER_ADDRESS = "待地图服务补全"
 PLACEHOLDER_COORD = Coordinate(latitude=0.0, longitude=0.0)
 
+# 当日/总体综合评分：默认基准分（0-5）。当某天/整份行程没有任何真实
+# 评分数据（占位模式或候选池无 rating）时使用，避免概览显示误导性的 0 分。
+DEFAULT_RATING = 4.5
+
 # 每天最少景点数：不足时由校验环节从候选池自动补选
 MIN_PLACES_PER_DAY = 2
 
@@ -787,6 +791,13 @@ class TripPlannerAgent:
 
         trip_name = draft.trip_name or f"{request.destination}{total_days}日游"
         elapsed = round(time.time() - started_at, 3) if started_at else 0.0
+
+        # 总体综合评分：取每天综合评分的平均值（每天都已是非零基准分或真实均值）。
+        overall_rating = (
+            round(sum(d.total_rating for d in days) / len(days), 1) if days else DEFAULT_RATING
+        )
+        overall_rating = min(5.0, max(0.0, overall_rating))
+
         return TripResponse(
             trip_id=str(uuid.uuid4()),
             destination=request.destination,
@@ -795,6 +806,7 @@ class TripPlannerAgent:
             end_date=request.end_date,
             total_days=total_days,
             days=days,
+            overall_rating=overall_rating,
             budget=BudgetInfo(
                 total_budget=0,
                 daily_avg_budget=0,
@@ -942,6 +954,25 @@ class TripPlannerAgent:
                 )
 
         duration = sum(it.place.suggested_duration for it in items)
+        lunch_model = meal(src.lunch)
+        dinner_model = meal(src.dinner)
+
+        # 当日综合评分：取当天所有有评分的项目（景点/餐厅/酒店）的平均值。
+        # 若当天没有任何真实评分（占位模式），则回落到默认基准分。
+        day_ratings: list[float] = []
+        for it in items:
+            if it.place.rating is not None:
+                day_ratings.append(float(it.place.rating))
+        for m in (lunch_model, dinner_model):
+            if m and m.rating is not None:
+                day_ratings.append(float(m.rating))
+        if hotel and hotel.rating is not None:
+            day_ratings.append(float(hotel.rating))
+        total_rating = (
+            round(sum(day_ratings) / len(day_ratings), 1) if day_ratings else DEFAULT_RATING
+        )
+        total_rating = min(5.0, max(0.0, total_rating))
+
         return ItineraryDay(
             day_number=day_number,
             itinerary_date=day_date,
@@ -949,10 +980,11 @@ class TripPlannerAgent:
             items=items,
             total_places=len(items),
             total_duration=duration,
+            total_rating=total_rating,
             daily_tips=list(src.daily_tips or []),
             breakfast=None,  # 不安排早餐
-            lunch=meal(src.lunch),
-            dinner=meal(src.dinner),
+            lunch=lunch_model,
+            dinner=dinner_model,
             hotel=hotel,
         )
 
