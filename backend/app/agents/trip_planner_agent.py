@@ -54,6 +54,9 @@ DEFAULT_MAX_TOKENS = 4096
 PLACEHOLDER_ADDRESS = "待地图服务补全"
 PLACEHOLDER_COORD = Coordinate(latitude=0.0, longitude=0.0)
 
+# 每天最少景点数：不足时由校验环节从候选池自动补选
+MIN_PLACES_PER_DAY = 2
+
 BUDGET_DAILY_BASE: dict[str, float] = {
     BudgetLevel.ECONOMY.value: 350.0,
     BudgetLevel.STANDARD.value: 600.0,
@@ -123,6 +126,7 @@ class DraftItem(BaseModel):
 
 class DraftMeal(BaseModel):
     name: str = Field(..., min_length=1)
+    place_id: Optional[str] = None
     cuisine_type: str = Field(default="本地菜")
     avg_price: float = Field(default=50.0, ge=0)
     address: str = Field(default=PLACEHOLDER_ADDRESS)
@@ -130,6 +134,7 @@ class DraftMeal(BaseModel):
 
 class DraftHotel(BaseModel):
     name: str = Field(..., min_length=1)
+    place_id: Optional[str] = None
     hotel_type: str = Field(default="舒适型")
     price: float = Field(default=300.0, ge=0)
     address: str = Field(default=PLACEHOLDER_ADDRESS)
@@ -160,10 +165,10 @@ class DraftItinerary(BaseModel):
 # Prompt
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约束与攻略资料，生成可执行的多日行程。
+SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约束与候选POI数据，生成可执行的多日行程。
 
 硬性规则：
-1. 优先使用检索工具 search_travel_guides 获取本地攻略；无资料时不要编造冷门景点。
+1. 当用户消息附带【候选POI】时，景点、餐厅、酒店必须从候选列表中选择，并输出对应的 place_id。不得使用候选列表外的地点。
 2. 若用户消息已附带【攻略上下文】，优先使用，可少调或不调工具。
 3. 最终回复必须是单个 JSON 对象（不要 Markdown 说明），字段如下：
 {
@@ -177,7 +182,8 @@ SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约�
           "start_time": "09:00",
           "end_time": "11:00",
           "name": "地点名",
-          "category": "景点|餐饮|住宿|其他",
+          "place_id": "候选列表中的place_id",
+          "category": "景点",
           "activity": "简短活动",
           "activity_detail": "可选详情",
           "duration_minutes": 120,
@@ -186,9 +192,43 @@ SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约�
         }
       ],
       "daily_tips": [],
-      "lunch": {"name": "店名", "cuisine_type": "菜系", "avg_price": 80},
-      "dinner": {"name": "店名", "cuisine_type": "菜系", "avg_price": 100},
-      "hotel": {"name": "酒店名", "hotel_type": "舒适型", "price": 350}
+      "lunch": {"name": "店名", "place_id": "候选列表中的place_id", "cuisine_type": "菜系", "avg_price": 80},
+      "dinner": {"name": "店名", "place_id": "候选列表中的place_id", "cuisine_type": "菜系", "avg_price": 100},
+      "hotel": {"name": "酒店名", "place_id": "候选列表中的place_id", "hotel_type": "舒适型", "price": 350}
+    },
+    {
+      "day_number": 2,
+      "day_theme": "同区域/相邻区域景点",
+      "items": [
+        {
+          "start_time": "09:00",
+          "end_time": "11:00",
+          "name": "景点 A",
+          "place_id": "候选列表中的place_id",
+          "category": "景点",
+          "activity": "简短活动",
+          "activity_detail": "可选详情",
+          "duration_minutes": 120,
+          "tips": ["提示"],
+          "ticket_price": 0
+        },
+        {
+          "start_time": "14:00",
+          "end_time": "16:30",
+          "name": "景点 B",
+          "place_id": "候选列表中的place_id",
+          "category": "景点",
+          "activity": "简短活动",
+          "activity_detail": "可选详情",
+          "duration_minutes": 150,
+          "tips": ["提示"],
+          "ticket_price": 0
+        }
+      ],
+      "daily_tips": [],
+      "lunch": {"name": "店名", "place_id": "候选列表中的place_id", "cuisine_type": "菜系", "avg_price": 80},
+      "dinner": {"name": "店名", "place_id": "候选列表中的place_id", "cuisine_type": "菜系", "avg_price": 100},
+      "hotel": {"name": "酒店名", "place_id": "候选列表中的place_id", "hotel_type": "舒适型", "price": 350}
     }
   ],
   "trip_highlights": [],
@@ -196,9 +236,12 @@ SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约�
   "recommended_foods": [],
   "recommended_shopping": []
 }
-4. days 数量必须等于用户行程天数；每日景点数量不超过 max_places_per_day。
-5. 遵守偏好关键词与排除关键词；带儿童/老人时优先轻松、少步行的安排。
-6. 时间按当日从早到晚排列，避免严重重叠。
+4. days 数量必须等于用户行程天数；每日景点数量不少于 2 个且不超过 max_places_per_day，尽量排满上午、下午时段。
+5. 每日必须包含 lunch、dinner 和 hotel（不需要 breakfast）。
+6. 同一天的景点必须属于同一区域分组（district/cluster），不可跨区域安排。
+7. 餐厅优先选择当天景点所在区域的候选。
+8. 遵守偏好关键词与排除关键词；带儿童/老人时优先轻松、少步行的安排。
+9. 时间按当日从早到晚排列，避免严重重叠。建议时段：上午09:00-11:00，午餐11:30-13:00，下午14:00-16:30，晚餐17:00-19:00。
 """
 
 
@@ -227,9 +270,14 @@ def build_user_prompt(
     *,
     context: Optional[str] = None,
     candidate_places: Optional[list[Any]] = None,
+    candidate_sections: Optional[dict[str, Any]] = None,
     extra_instruction: Optional[str] = None,
 ) -> str:
-    """将 TripRequest 渲染为 user 消息。"""
+    """将 TripRequest 渲染为 user 消息。
+
+    当 candidate_sections 传入时（B类动态城市），按景点/餐饮/住宿三段分类输出，
+    并标注区域分组，强制 LLM 从候选池中选点并输出 place_id。
+    """
     days = (request.end_date - request.start_date).days + 1
     lines = [
         f"目的地：{request.destination}",
@@ -259,7 +307,87 @@ def build_user_prompt(
         lines.append("偏好关键词：" + "、".join(request.preferred_keywords))
     if request.excluded_keywords:
         lines.append("排除关键词：" + "、".join(request.excluded_keywords))
-    if candidate_places:
+
+    # ---- 分类候选池输出（B类动态城市新路径） ----
+    if candidate_sections and candidate_sections.get("scenic"):
+        lines.append("")
+        lines.append("【候选POI】")
+        lines.append("以下为高德真实POI数据，你必须从中选择地点并输出对应 place_id，禁止使用列表外地点。")
+        lines.append("")
+
+        # 景点（按区域分组）
+        clusters = candidate_sections.get("clusters") or {}
+        scenic_list = candidate_sections.get("scenic") or []
+        lines.append("## 景点候选（按区域分组）")
+        if clusters:
+            # 按 cluster 分组输出
+            scenic_by_id = {p.get("place_id"): p for p in scenic_list if isinstance(p, dict)}
+            for cluster_name, place_ids in clusters.items():
+                lines.append(f"### {cluster_name}")
+                for pid in place_ids:
+                    p = scenic_by_id.get(pid)
+                    if not p:
+                        continue
+                    coord = p.get("coordinate") or {}
+                    lines.append(
+                        f"- [place_id={p.get('place_id')}] {p.get('name')} "
+                        f"| 评分{p.get('rating') or '无'} "
+                        f"| {(f'门票{p.get("cost")}元' if p.get('cost') else '门票未知')} "
+                        f"| 坐标({coord.get('latitude', '?')},{coord.get('longitude', '?')}) "
+                        f"| {p.get('address') or ''}"
+                    )
+        else:
+            for p in scenic_list[:30]:
+                if not isinstance(p, dict):
+                    continue
+                coord = p.get("coordinate") or {}
+                lines.append(
+                    f"- [place_id={p.get('place_id')}] {p.get('name')} "
+                    f"| 评分{p.get('rating') or '无'} "
+                    f"| {p.get('district') or '区域未知'} "
+                    f"| 坐标({coord.get('latitude', '?')},{coord.get('longitude', '?')})"
+                )
+        lines.append("")
+
+        # 餐饮
+        food_list = candidate_sections.get("food") or []
+        if food_list:
+            lines.append("## 餐饮候选")
+            for p in food_list[:20]:
+                if not isinstance(p, dict):
+                    continue
+                lines.append(
+                    f"- [place_id={p.get('place_id')}] {p.get('name')} "
+                    f"| {(f'人均{p.get("cost")}元' if p.get('cost') else '人均未知')} "
+                    f"| {p.get('district') or '区域未知'} "
+                    f"| 评分{p.get('rating') or '无'}"
+                )
+            lines.append("")
+
+        # 住宿
+        hotel_list = candidate_sections.get("hotel") or []
+        if hotel_list:
+            lines.append("## 住宿候选")
+            for p in hotel_list[:10]:
+                if not isinstance(p, dict):
+                    continue
+                lines.append(
+                    f"- [place_id={p.get('place_id')}] {p.get('name')} "
+                    f"| {(f'{p.get("cost")}元/晚' if p.get('cost') else '价格未知')} "
+                    f"| {p.get('district') or '区域未知'} "
+                    f"| 评分{p.get('rating') or '无'}"
+                )
+            lines.append("")
+
+        lines.append("## 规则")
+        lines.append("1. 每日格式：上午景点 → 午餐 → 下午景点 → 晚餐 → 酒店（不需要早餐）")
+        lines.append("2. 景点必须引用候选列表中的 place_id，同一天的景点必须在同一区域分组内；每天至少 2 个景点，尽量安排 3 个或更多，把上午和下午时段都用上。")
+        lines.append("3. 餐厅优先选当天景点所在区域的候选")
+        lines.append("4. 每日必须包含 lunch、dinner 和 hotel，且都需输出 place_id")
+        lines.append("5. 多日行程时，每天选择不同区域的景点，保证多样性")
+        lines.append("")
+    elif candidate_places:
+        # 旧路径：扁平列表（A类沉淀城市降级等场景）
         names = []
         for p in candidate_places[:40]:
             if isinstance(p, dict):
@@ -267,6 +395,7 @@ def build_user_prompt(
             else:
                 names.append(str(getattr(p, "name", p)))
         lines.append("候选地点（请优先从中选择，勿使用列表外冷门点）：" + "、".join(names))
+
     if extra_instruction:
         lines.append("额外要求：" + extra_instruction)
     if context and context.strip():
@@ -423,13 +552,16 @@ class TripPlannerAgent:
         *,
         context: Optional[str] = None,
         candidate_places: Optional[list[Any]] = None,
+        candidate_sections: Optional[dict[str, Any]] = None,
         use_tools: bool = True,
         allow_fallback: bool = True,
     ) -> TripResponse:
         """
         生成行程草案。内部走 LangGraph 主图。
 
-        对外签名与第五阶段完全一致；返回值仍为 TripResponse。
+        新增参数（B类动态城市）：
+        - candidate_sections: 分类候选池 {scenic, food, hotel, clusters, index}
+          传入时走全链路 POI 驱动模式，Agent 从候选池选点并输出 place_id。
         """
         start = time.time()
         meta: dict[str, Any] = {
@@ -441,10 +573,24 @@ class TripPlannerAgent:
             "model_used": self.model,
         }
 
+        # 从 candidate_sections 拆出分类字段供 state 使用
+        sections = candidate_sections or {}
+        scenic_candidates = sections.get("scenic") or []
+        food_candidates = sections.get("food") or []
+        hotel_candidates = sections.get("hotel") or []
+        district_clusters = sections.get("clusters") or {}
+        candidate_index = sections.get("index") or {}
+
         state: dict = {
             "request": request,
             "context": context,
             "candidate_places": candidate_places,
+            "candidate_sections": candidate_sections,
+            "scenic_candidates": scenic_candidates,
+            "food_candidates": food_candidates,
+            "hotel_candidates": hotel_candidates,
+            "district_clusters": district_clusters,
+            "candidate_index": candidate_index,
             "use_tools": use_tools,
             "allow_fallback": allow_fallback,
             "meta": meta,
@@ -619,8 +765,13 @@ class TripPlannerAgent:
         *,
         meta: Optional[dict] = None,
         started_at: Optional[float] = None,
+        candidate_index: Optional[dict[str, Any]] = None,
     ) -> TripResponse:
-        """草案 → TripResponse（坐标/地址占位，供后续 enrichment）。"""
+        """草案 → TripResponse。
+
+        当 candidate_index 传入时（B类动态城市），用候选池中的真实坐标/地址/图片填充，
+        不再使用占位符。无候选数据时退回占位模式（A类路径不变）。
+        """
         total_days = (request.end_date - request.start_date).days + 1
         days: list[ItineraryDay] = []
         for i in range(total_days):
@@ -630,7 +781,9 @@ class TripPlannerAgent:
                 src = draft.days[i]
             if src is None:
                 src = DraftDay(day_number=i + 1, items=[])
-            days.append(self._draft_day_to_model(src, day_number=i + 1, day_date=d))
+            days.append(self._draft_day_to_model(
+                src, day_number=i + 1, day_date=d, candidate_index=candidate_index,
+            ))
 
         trip_name = draft.trip_name or f"{request.destination}{total_days}日游"
         elapsed = round(time.time() - started_at, 3) if started_at else 0.0
@@ -658,21 +811,65 @@ class TripPlannerAgent:
         )
 
     def _draft_day_to_model(
-        self, src: DraftDay, *, day_number: int, day_date: date
+        self,
+        src: DraftDay,
+        *,
+        day_number: int,
+        day_date: date,
+        candidate_index: Optional[dict[str, Any]] = None,
     ) -> ItineraryDay:
+        idx_map = candidate_index or {}
+
+        def _lookup(place_id: Optional[str]) -> Optional[dict[str, Any]]:
+            """从候选索引中按 place_id 查找完整 POI 数据。"""
+            if not place_id or not idx_map:
+                return None
+            return idx_map.get(place_id)
+
+        def _coord_from_dict(d: dict[str, Any]) -> Coordinate:
+            c = d.get("coordinate")
+            if isinstance(c, dict) and c.get("latitude") is not None:
+                return Coordinate(
+                    latitude=float(c["latitude"]),
+                    longitude=float(c["longitude"]),
+                )
+            return PLACEHOLDER_COORD
+
         items: list[ItineraryItem] = []
         for idx, it in enumerate(src.items):
-            place = PlaceInfo(
-                place_id=it.place_id or f"draft-{day_number}-{idx}-{abs(hash(it.name)) % 100000}",
-                name=it.name,
-                address=PLACEHOLDER_ADDRESS,
-                coordinate=PLACEHOLDER_COORD,
-                category=it.category or "景点",
-                suggested_duration=it.duration_minutes,
-                ticket_price=it.ticket_price,
-                is_free=(it.ticket_price == 0) if it.ticket_price is not None else False,
-                highlight=it.activity,
-            )
+            cp = _lookup(it.place_id)
+            if cp:
+                # B类动态城市：用候选池真实数据
+                place = PlaceInfo(
+                    place_id=it.place_id or cp.get("place_id", ""),
+                    name=cp.get("name", it.name),
+                    address=cp.get("address") or PLACEHOLDER_ADDRESS,
+                    coordinate=_coord_from_dict(cp),
+                    district=cp.get("district"),
+                    category=it.category or cp.get("category") or "景点",
+                    tags=list(cp.get("tags") or [])[:6],
+                    suggested_duration=it.duration_minutes,
+                    ticket_price=it.ticket_price if it.ticket_price is not None else cp.get("cost"),
+                    is_free=(it.ticket_price == 0) if it.ticket_price is not None else False,
+                    rating=cp.get("rating"),
+                    images=list(cp.get("photos") or [])[:3],
+                    cover_image=(cp.get("photos") or [None])[0] if cp.get("photos") else None,
+                    phone=cp.get("telephone") or None,
+                    highlight=it.activity,
+                )
+            else:
+                # A类沉淀城市 / 降级路径：占位模式
+                place = PlaceInfo(
+                    place_id=it.place_id or f"draft-{day_number}-{idx}-{abs(hash(it.name)) % 100000}",
+                    name=it.name,
+                    address=PLACEHOLDER_ADDRESS,
+                    coordinate=PLACEHOLDER_COORD,
+                    category=it.category or "景点",
+                    suggested_duration=it.duration_minutes,
+                    ticket_price=it.ticket_price,
+                    is_free=(it.ticket_price == 0) if it.ticket_price is not None else False,
+                    highlight=it.activity,
+                )
             items.append(
                 ItineraryItem(
                     start_time=it.start_time,
@@ -680,7 +877,7 @@ class TripPlannerAgent:
                     place=place,
                     activity=it.activity or "游览",
                     activity_detail=it.activity_detail,
-                    ticket_price=it.ticket_price,
+                    ticket_price=place.ticket_price,
                     tips=list(it.tips or []),
                 )
             )
@@ -688,8 +885,24 @@ class TripPlannerAgent:
         def meal(m: Optional[DraftMeal]) -> Optional[RestaurantInfo]:
             if not m:
                 return None
+            cp = _lookup(m.place_id)
+            if cp:
+                coord = _coord_from_dict(cp)
+                photos = list(cp.get("photos") or [])
+                return RestaurantInfo(
+                    place_id=m.place_id or cp.get("place_id", ""),
+                    name=cp.get("name", m.name),
+                    coordinate=coord,
+                    address=cp.get("address") or PLACEHOLDER_ADDRESS,
+                    cuisine_type=m.cuisine_type or "本地菜",
+                    price_range=f"{int(m.avg_price)}元左右",
+                    avg_price=m.avg_price,
+                    rating=cp.get("rating"),
+                    images=photos[:3],
+                    tags=list(cp.get("tags") or [])[:4],
+                )
             return RestaurantInfo(
-                place_id=f"meal-{abs(hash(m.name)) % 100000}",
+                place_id=m.place_id or f"meal-{abs(hash(m.name)) % 100000}",
                 name=m.name,
                 coordinate=PLACEHOLDER_COORD,
                 address=m.address or PLACEHOLDER_ADDRESS,
@@ -700,15 +913,33 @@ class TripPlannerAgent:
 
         hotel = None
         if src.hotel:
-            hotel = HotelInfo(
-                place_id=f"hotel-{abs(hash(src.hotel.name)) % 100000}",
-                name=src.hotel.name,
-                coordinate=PLACEHOLDER_COORD,
-                address=src.hotel.address or PLACEHOLDER_ADDRESS,
-                hotel_type=src.hotel.hotel_type or "舒适型",
-                price=src.hotel.price,
-                price_range=f"{int(src.hotel.price)}元/晚",
-            )
+            cp = _lookup(src.hotel.place_id)
+            if cp:
+                coord = _coord_from_dict(cp)
+                photos = list(cp.get("photos") or [])
+                hotel = HotelInfo(
+                    place_id=src.hotel.place_id or cp.get("place_id", ""),
+                    name=cp.get("name", src.hotel.name),
+                    coordinate=coord,
+                    address=cp.get("address") or PLACEHOLDER_ADDRESS,
+                    hotel_type=src.hotel.hotel_type or "舒适型",
+                    price=src.hotel.price,
+                    price_range=f"{int(src.hotel.price)}元/晚",
+                    rating=cp.get("rating"),
+                    images=photos[:3],
+                    cover_image=photos[0] if photos else None,
+                    tags=list(cp.get("tags") or [])[:4],
+                )
+            else:
+                hotel = HotelInfo(
+                    place_id=src.hotel.place_id or f"hotel-{abs(hash(src.hotel.name)) % 100000}",
+                    name=src.hotel.name,
+                    coordinate=PLACEHOLDER_COORD,
+                    address=src.hotel.address or PLACEHOLDER_ADDRESS,
+                    hotel_type=src.hotel.hotel_type or "舒适型",
+                    price=src.hotel.price,
+                    price_range=f"{int(src.hotel.price)}元/晚",
+                )
 
         duration = sum(it.place.suggested_duration for it in items)
         return ItineraryDay(
@@ -719,7 +950,7 @@ class TripPlannerAgent:
             total_places=len(items),
             total_duration=duration,
             daily_tips=list(src.daily_tips or []),
-            breakfast=meal(src.breakfast),
+            breakfast=None,  # 不安排早餐
             lunch=meal(src.lunch),
             dinner=meal(src.dinner),
             hotel=hotel,
@@ -728,18 +959,44 @@ class TripPlannerAgent:
     # ---------- 校验 ----------
 
     def validate_and_repair(
-        self, draft: DraftItinerary, request: TripRequest
+        self,
+        draft: DraftItinerary,
+        request: TripRequest,
+        *,
+        candidate_index: Optional[dict[str, Any]] = None,
+        district_clusters: Optional[dict[str, list[str]]] = None,
+        food_candidates: Optional[list[Any]] = None,
+        hotel_candidates: Optional[list[Any]] = None,
     ) -> tuple[DraftItinerary, list[str]]:
+        """校验与修复草案。
+
+        新增（B类动态城市）：
+        - place_id 合法性校验：检查景点/餐饮/酒店是否在候选池内
+        - 跨 cluster 检测：同日景点必须在同一区域分组
+        - 食宿缺失补选：lunch/dinner/hotel 缺失时从候选池自动补选
+        """
         warnings: list[str] = []
         total_days = (request.end_date - request.start_date).days + 1
         excluded = [str(x).strip() for x in (request.excluded_keywords or []) if str(x).strip()]
         max_places = request.max_places_per_day
+
+        idx_map = candidate_index or {}
+        clusters = district_clusters or {}
+        food_pool = food_candidates or []
+        hotel_pool = hotel_candidates or []
+
+        # 构建反向索引：place_id → cluster_name
+        pid_to_cluster: dict[str, str] = {}
+        for cluster_name, pids in clusters.items():
+            for pid in pids:
+                pid_to_cluster[pid] = cluster_name
 
         # 对齐天数
         by_num: dict[int, DraftDay] = {}
         for d in draft.days:
             by_num[d.day_number] = d
         new_days: list[DraftDay] = []
+        used_global_scenic: set[str] = set()
         for i in range(1, total_days + 1):
             day = by_num.get(i)
             if day is None and draft.days:
@@ -768,10 +1025,152 @@ class TripPlannerAgent:
                         kept.append(it)
                 day.items = kept
 
+            # place_id 合法性校验（B类路径）
+            if idx_map:
+                for it in day.items:
+                    if it.place_id and it.place_id not in idx_map:
+                        # 尝试按名称匹配候选池
+                        matched = False
+                        for pid, cp in idx_map.items():
+                            if isinstance(cp, dict) and cp.get("name") == it.name:
+                                it.place_id = pid
+                                matched = True
+                                break
+                        if not matched:
+                            warnings.append(f"第{i}天 [{it.name}] place_id 不在候选池")
+
+            # 跨 cluster 检测
+            if pid_to_cluster and day.items:
+                cluster_counts: dict[str, int] = {}
+                for it in day.items:
+                    c = pid_to_cluster.get(it.place_id or "", "未知")
+                    cluster_counts[c] = cluster_counts.get(c, 0) + 1
+                if len(cluster_counts) > 1:
+                    majority = max(cluster_counts, key=cluster_counts.get)
+                    minority_pids = [
+                        it.place_id for it in day.items
+                        if pid_to_cluster.get(it.place_id or "", "") != majority
+                    ]
+                    if minority_pids:
+                        warnings.append(
+                            f"第{i}天跨区域: 多数在[{majority}]，"
+                            f"少数{minority_pids}建议替换"
+                        )
+
             # 裁剪景点数
             if len(day.items) > max_places:
                 warnings.append(f"第{i}天景点 {len(day.items)}>{max_places}，已裁剪")
                 day.items = day.items[:max_places]
+
+            # 景点数不足补选（B类路径）：每天至少 MIN_PLACES_PER_DAY 个
+            used_global_scenic.update(it.place_id for it in day.items if it.place_id)
+            if idx_map and len(day.items) < MIN_PLACES_PER_DAY:
+                need = MIN_PLACES_PER_DAY - len(day.items)
+                current_pids = {it.place_id for it in day.items if it.place_id}
+                existing_clusters = {
+                    pid_to_cluster.get(pid)
+                    for pid in current_pids
+                    if pid_to_cluster.get(pid)
+                }
+                same_cluster_pids: list[str] = []
+                other_pids: list[str] = []
+                for cluster_name, pids in clusters.items():
+                    bucket = (
+                        same_cluster_pids
+                        if cluster_name in existing_clusters
+                        else other_pids
+                    )
+                    for pid in pids:
+                        if pid in used_global_scenic or pid in current_pids:
+                            continue
+                        cp = idx_map.get(pid)
+                        if not isinstance(cp, dict):
+                            continue
+                        name = cp.get("name", "")
+                        if excluded and any(ex in name for ex in excluded):
+                            continue
+                        bucket.append(pid)
+
+                def _rating_key(pid: str) -> float:
+                    cp = idx_map.get(pid) or {}
+                    try:
+                        return -float(cp.get("rating") or 0.0)
+                    except (TypeError, ValueError):
+                        return 0.0
+
+                same_cluster_pids.sort(key=_rating_key)
+                other_pids.sort(key=_rating_key)
+                picked = same_cluster_pids[:need]
+                remaining = need - len(picked)
+                if remaining > 0:
+                    picked += other_pids[:remaining]
+
+                for pid in picked:
+                    cp = idx_map[pid]
+                    name = cp.get("name", "")
+                    cost = cp.get("cost")
+                    try:
+                        ticket = float(cost) if cost else 0.0
+                    except (TypeError, ValueError):
+                        ticket = 0.0
+                    day.items.append(
+                        DraftItem(
+                            name=name,
+                            place_id=pid,
+                            category="景点",
+                            activity="游览",
+                            start_time="14:00",
+                            end_time="16:30",
+                            duration_minutes=150,
+                            ticket_price=ticket,
+                        )
+                    )
+                    used_global_scenic.add(pid)
+                    warnings.append(f"第{i}天景点不足，已自动补选: {name}")
+
+            # 食宿缺失补选（B类路径）
+            if food_pool and not day.lunch:
+                # 取第一个未用过的餐饮候选
+                used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
+                for fp in food_pool:
+                    pid = fp.get("place_id") if isinstance(fp, dict) else None
+                    if pid and pid not in used_pids:
+                        day.lunch = DraftMeal(
+                            name=fp.get("name", ""),
+                            place_id=pid,
+                            cuisine_type=fp.get("category", "本地菜"),
+                            avg_price=float(fp.get("cost") or 50),
+                        )
+                        used_pids.add(pid)
+                        warnings.append(f"第{i}天午餐缺失，已自动补选: {fp.get('name')}")
+                        break
+            if food_pool and not day.dinner:
+                used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
+                for fp in food_pool:
+                    pid = fp.get("place_id") if isinstance(fp, dict) else None
+                    if pid and pid not in used_pids:
+                        day.dinner = DraftMeal(
+                            name=fp.get("name", ""),
+                            place_id=pid,
+                            cuisine_type=fp.get("category", "本地菜"),
+                            avg_price=float(fp.get("cost") or 80),
+                        )
+                        warnings.append(f"第{i}天晚餐缺失，已自动补选: {fp.get('name')}")
+                        break
+            if hotel_pool and not day.hotel:
+                # 取第一个酒店候选
+                hp = hotel_pool[0] if hotel_pool else None
+                if hp and isinstance(hp, dict):
+                    day.hotel = DraftHotel(
+                        name=hp.get("name", ""),
+                        place_id=hp.get("place_id", ""),
+                        hotel_type="舒适型",
+                        price=float(hp.get("cost") or 300),
+                    )
+                    warnings.append(f"第{i}天酒店缺失，已自动补选: {hp.get('name')}")
+
+            # 强制清除 breakfast（不安排早餐）
+            day.breakfast = None
 
             # 时间排序与简单去重叠
             day.items = self._sort_and_fix_times(day.items, warnings, day_number=i)

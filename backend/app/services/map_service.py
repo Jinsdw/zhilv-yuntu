@@ -172,6 +172,9 @@ class POIInfo:
     tag: str                           # 标签
     rating: Optional[float]            # 评分
     cost: Optional[float]              # 人均消费
+    adcode: str = ""                  # 行政区划代码
+    district: str = ""                # 行政区（区/县名）
+    photos: List[str] = field(default_factory=list)  # POI 图片 URL 列表
     opening_hours: str = ""           # 营业时间
     info: str = ""                    # 状态信息
     status: bool = True                # 请求是否成功
@@ -963,6 +966,36 @@ class MapService:
         except (ValueError, TypeError):
             return default
 
+    @staticmethod
+    def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
+        """安全转换为 float，兼容空数组/None/字符串。"""
+        if value is None or isinstance(value, (list, dict)):
+            return default
+        try:
+            val = float(value)
+            return val if val > 0 else default
+        except (ValueError, TypeError):
+            return default
+
+    @staticmethod
+    def _extract_photo_urls(poi_data: Dict[str, Any], *, limit: int = 5) -> List[str]:
+        """从高德 POI 响应数据中提取图片 URL 列表。"""
+        urls: List[str] = []
+        seen: set[str] = set()
+        for photo in poi_data.get("photos") or []:
+            if not isinstance(photo, dict):
+                continue
+            url = (photo.get("url") or photo.get("preurl") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                continue
+            if url in seen:
+                continue
+            seen.add(url)
+            urls.append(url)
+            if len(urls) >= limit:
+                break
+        return urls
+
     def _parse_boundary(self, boundary_str: str) -> List[List[Coordinate]]:
         """
         解析行政区边界字符串
@@ -1048,6 +1081,7 @@ class MapService:
             "offset": min(page_size, 50),
             "output": "json",
             "sortrule": sort.value,
+            "extensions": "all",
         }
 
         if city:
@@ -1077,6 +1111,7 @@ class MapService:
                 location_str = poi_data.get("location", "")
                 coord = self._parse_single_coordinate(location_str)
 
+                biz_ext = poi_data.get("biz_ext") or {}
                 pois.append(POIInfo(
                     id=poi_data.get("id", ""),
                     name=poi_data.get("name", ""),
@@ -1089,9 +1124,12 @@ class MapService:
                     business_area=poi_data.get("business_area", ""),
                     city=poi_data.get("cityname", ""),
                     tag=poi_data.get("tag", ""),
-                    rating=None,
-                    cost=None,
-                    opening_hours=poi_data.get("营业时间", ""),
+                    rating=self._safe_float(biz_ext.get("rating")),
+                    cost=self._safe_float(biz_ext.get("cost")),
+                    adcode=poi_data.get("adcode", ""),
+                    district=poi_data.get("adname", ""),
+                    photos=self._extract_photo_urls(poi_data),
+                    opening_hours=poi_data.get("opening_time", ""),
                     info="OK",
                     status=True,
                 ))
@@ -1155,6 +1193,7 @@ class MapService:
             "offset": min(page_size, 50),
             "output": "json",
             "sortrule": sort.value,
+            "extensions": "all",
         }
 
         if keywords:
@@ -1182,6 +1221,7 @@ class MapService:
                 location_str = poi_data.get("location", "")
                 coord = self._parse_single_coordinate(location_str)
 
+                biz_ext = poi_data.get("biz_ext") or {}
                 pois.append(POIInfo(
                     id=poi_data.get("id", ""),
                     name=poi_data.get("name", ""),
@@ -1194,9 +1234,12 @@ class MapService:
                     business_area=poi_data.get("business_area", ""),
                     city=poi_data.get("cityname", ""),
                     tag=poi_data.get("tag", ""),
-                    rating=None,
-                    cost=None,
-                    opening_hours=poi_data.get("营业时间", ""),
+                    rating=self._safe_float(biz_ext.get("rating")),
+                    cost=self._safe_float(biz_ext.get("cost")),
+                    adcode=poi_data.get("adcode", ""),
+                    district=poi_data.get("adname", ""),
+                    photos=self._extract_photo_urls(poi_data),
+                    opening_hours=poi_data.get("opening_time", ""),
                     info="OK",
                     status=True,
                 ))

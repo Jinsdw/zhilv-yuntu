@@ -116,9 +116,9 @@ def prefetch_rag_node(state: PlannerState) -> dict:
     if use_tools:
         return {"rag_context": "", "meta": {**_ensure_meta(state), **meta_patch}}
 
-    # 动态城市 POI 路径：已有候选地点池，无需再查本地攻略库（珠海等非沉淀城市
-    # 检索必然为空，会导致无谓的降级阶梯和 rerank 模型加载，浪费数十秒）
-    if candidate_places:
+    # 动态城市 POI 路径：已有候选地点池或分类候选池，无需再查本地攻略库
+    candidate_sections = state.get("candidate_sections")
+    if candidate_places or candidate_sections:
         return {"rag_context": "", "meta": {**_ensure_meta(state), **meta_patch}}
 
     # use_tools=False 且 context 为空：预取一次
@@ -149,6 +149,7 @@ def llm_plan_node(state: PlannerState) -> dict:
     request = state["request"]
     rag_context = state.get("rag_context", "") or ""
     candidate_places = state.get("candidate_places")
+    candidate_sections = state.get("candidate_sections")
     use_tools = state.get("use_tools", True)
     meta = _ensure_meta(state)
 
@@ -156,6 +157,7 @@ def llm_plan_node(state: PlannerState) -> dict:
         request,
         context=rag_context or None,
         candidate_places=candidate_places,
+        candidate_sections=candidate_sections,
     )
 
     # 构造消息：system + user（首轮写入 state，保证后续轮次消息以 system/user 开头）
@@ -316,8 +318,19 @@ def validate_repair_node(state: PlannerState) -> dict:
     agent.temperature = 0.0
     agent.max_tokens = 0
 
+    candidate_index = state.get("candidate_index") or {}
+    district_clusters = state.get("district_clusters") or {}
+    food_candidates = state.get("food_candidates") or []
+    hotel_candidates = state.get("hotel_candidates") or []
+
     try:
-        fixed_draft, warnings = agent.validate_and_repair(draft, request)
+        fixed_draft, warnings = agent.validate_and_repair(
+            draft, request,
+            candidate_index=candidate_index,
+            district_clusters=district_clusters,
+            food_candidates=food_candidates,
+            hotel_candidates=hotel_candidates,
+        )
         meta["validation_warnings"] = list(warnings)
         return {"draft": fixed_draft, "meta": meta, "error": None}
     except Exception as e:
@@ -350,8 +363,10 @@ def build_trip_node(state: PlannerState) -> dict:
     agent.temperature = 0.0
     agent.max_tokens = 0
 
+    candidate_index = state.get("candidate_index") or {}
+
     try:
-        trip = agent.draft_to_trip_response(draft, request, meta=meta)
+        trip = agent.draft_to_trip_response(draft, request, meta=meta, candidate_index=candidate_index)
         return {"trip": trip, "meta": meta}
     except Exception as e:
         logger.error(f"build_trip 失败: {e}")

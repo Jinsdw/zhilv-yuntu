@@ -313,7 +313,7 @@ class TripService:
         根据城市分级调用 TripPlannerAgent.plan：
 
         - 沉淀城市：Agent 走 RAG 工具调用模式（use_tools=True）
-        - 动态城市：先拉 POI 候选池喂给 Agent（use_tools=False）
+        - 动态城市：构建三池（景点/餐饮/住宿）+ 区域聚类 → 全链路 POI 驱动
                     POI 拉取失败则降级回 RAG 路径
         """
         dest = request.destination
@@ -326,21 +326,29 @@ class TripService:
                 allow_fallback=True,
             )
 
-        # 动态城市：先拉 POI 候选池
-        logger.info(f"动态城市 [{dest}]：先拉 POI 候选池")
+        # 动态城市：构建三池（景点/餐饮/住宿）+ 区域聚类
+        logger.info(f"动态城市 [{dest}]：构建 POI 三池（景点/餐饮/住宿）")
         try:
             pool = self._place_service.build_pool_sync(request)
-            items = PlaceCandidateService.to_prompt_items(pool)
-            if not items:
-                logger.warning(f"动态城市 [{dest}] 候选池为空，退回 RAG 路径")
+            sections = PlaceCandidateService.to_prompt_sections(pool)
+            if not sections.get("scenic"):
+                logger.warning(f"动态城市 [{dest}] 景点池为空，退回 RAG 路径")
                 return self._agent.plan(request, use_tools=True, allow_fallback=True)
         except Exception as e:
-            logger.warning(f"POI 候选池构建失败: {e}，退回 RAG 路径")
+            logger.warning(f"POI 三池构建失败: {e}，退回 RAG 路径")
             return self._agent.plan(request, use_tools=True, allow_fallback=True)
+
+        logger.info(
+            f"动态城市 [{dest}] 候选池: "
+            f"景点{len(sections.get('scenic') or [])}个 "
+            f"餐饮{len(sections.get('food') or [])}个 "
+            f"住宿{len(sections.get('hotel') or [])}个 "
+            f"区域{len(sections.get('clusters') or {})}个"
+        )
 
         return self._agent.plan(
             request,
-            candidate_places=items,
+            candidate_sections=sections,
             use_tools=False,
             allow_fallback=True,
         )

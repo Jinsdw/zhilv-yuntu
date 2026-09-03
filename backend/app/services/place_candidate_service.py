@@ -56,6 +56,8 @@ DEFAULT_BUCKET_CAP = 8
 DEFAULT_CACHE_TTL_STRATEGY = CacheStrategy.LONG_TERM  # 24h
 RATE_LIMIT_DELAY = 0.15
 MAX_CONCURRENCY = 4
+DEFAULT_MAX_FOOD_PLACES = 20
+DEFAULT_MAX_HOTEL_PLACES = 10
 
 # 高德常用 POI 类型码（景点/餐饮/住宿相关）
 TYPE_SCENIC = "110000"  # 风景名胜
@@ -174,27 +176,51 @@ class CandidatePlace(BaseModel):
     telephone: str = ""
     opening_hours: str = ""
     distance: int = 0
+    adcode: str = ""
+    city: str = ""
+    cost: Optional[float] = None
+    photos: list[str] = Field(default_factory=list)
     source: str = "amap"
     score: float = 0.0
     reason: str = ""
 
     def to_prompt_dict(self) -> dict[str, Any]:
+        coord = None
+        if self.coordinate is not None:
+            coord = {
+                "latitude": self.coordinate.latitude,
+                "longitude": self.coordinate.longitude,
+            }
         return {
             "place_id": self.place_id,
             "name": self.name,
             "category": self.category,
             "address": self.address,
+            "coordinate": coord,
             "district": self.district,
+            "business_area": self.business_area,
+            "adcode": self.adcode,
+            "city": self.city,
             "tags": self.tags[:6],
+            "type_code": self.type_code,
+            "rating": self.rating,
+            "cost": self.cost,
+            "photos": self.photos[:3],
+            "telephone": self.telephone,
+            "opening_hours": self.opening_hours,
             "score": round(self.score, 3),
         }
 
 
 class CandidatePool(BaseModel):
-    """候选池结果"""
+    """候选池结果（三池结构：景点 / 餐饮 / 住宿）"""
 
     city: str
     places: list[CandidatePlace] = Field(default_factory=list)
+    scenic_places: list[CandidatePlace] = Field(default_factory=list)
+    food_places: list[CandidatePlace] = Field(default_factory=list)
+    hotel_places: list[CandidatePlace] = Field(default_factory=list)
+    district_clusters: dict[str, list[str]] = Field(default_factory=dict)
     query_plan: Optional[QueryPlan] = None
     fetched_at: str = ""
     warnings: list[str] = Field(default_factory=list)
@@ -203,6 +229,19 @@ class CandidatePool(BaseModel):
 
     def to_prompt_items(self) -> list[dict[str, Any]]:
         return [p.to_prompt_dict() for p in self.places]
+
+    def to_prompt_sections(self) -> dict[str, Any]:
+        """返回分类结构化候选数据，供 Agent prompt 与 build_trip 使用。"""
+        index: dict[str, dict[str, Any]] = {}
+        for p in self.places:
+            index[p.place_id] = p.to_prompt_dict()
+        return {
+            "scenic": [p.to_prompt_dict() for p in self.scenic_places],
+            "food": [p.to_prompt_dict() for p in self.food_places],
+            "hotel": [p.to_prompt_dict() for p in self.hotel_places],
+            "clusters": self.district_clusters,
+            "index": index,
+        }
 
 
 @dataclass
@@ -357,18 +396,39 @@ def build_query_plan(
         )
     )
 
-    # 美食风格额外餐饮
-    if style_key == TravelStyle.FOODIE.value or any("美食" in k or "吃" in k for k in preferred):
-        tasks.append(
-            SearchTask(
-                mode=SearchMode.TYPES,
-                types=TYPE_FOOD,
-                keywords="特色",
-                limit=per_task_limit,
-                priority=35,
-                label="food:types",
-            )
+    # 餐饮搜索（所有风格都需要，用于每日午餐/晚餐安排）
+    tasks.append(
+        SearchTask(
+            mode=SearchMode.TYPES,
+            types=TYPE_FOOD,
+            keywords="特色美食",
+            limit=per_task_limit,
+            priority=35,
+            label="food:types",
         )
+    )
+    tasks.append(
+        SearchTask(
+            mode=SearchMode.KEYWORD,
+            keywords="必吃榜 老字号",
+            types=TYPE_FOOD,
+            limit=per_task_limit,
+            priority=34,
+            label="food:popular",
+        )
+    )
+
+    # 住宿搜索（所有风格都需要，用于每日酒店安排）
+    tasks.append(
+        SearchTask(
+            mode=SearchMode.TYPES,
+            types=TYPE_HOTEL,
+            keywords=request.destination,
+            limit=per_task_limit,
+            priority=30,
+            label="hotel:types",
+        )
+    )
 
     # 去重同 label/keywords
     deduped: list[SearchTask] = []
@@ -426,7 +486,7 @@ def poi_to_candidate(poi: POIInfo, *, source: str = "amap") -> Optional[Candidat
         category=_category_from_poi(poi),
         address=poi.address or "",
         coordinate=poi.location,
-        district=None,
+        district=poi.district or None,
         business_area=poi.business_area or "",
         tags=[t.strip() for t in tags if t.strip()][:8],
         type_code=poi.type_code or "",
@@ -434,6 +494,10 @@ def poi_to_candidate(poi: POIInfo, *, source: str = "amap") -> Optional[Candidat
         telephone=poi.telephone or "",
         opening_hours=poi.opening_hours or "",
         distance=int(poi.distance or 0),
+        adcode=poi.adcode or "",
+        city=poi.city or "",
+        cost=poi.cost,
+        photos=list(poi.photos or []),
         source=source,
     )
 
@@ -599,6 +663,19 @@ def filter_and_rank(
 
 
 # ---------------------------------------------------------------------------
+# 5.3.6 区域聚类
+# ---------------------------------------------------------------------------
+
+def build_cluster_map(places: list[CandidatePlace]) -> dict[str, list[str]]:
+    """按 district/business_area 对景点池聚类，输出 {cluster_name: [place_ids]}。"""
+    clusters: dict[str, list[str]] = {}
+    for p in places:
+        cluster = (p.district or p.business_area or "其他").strip() or "其他"
+        clusters.setdefault(cluster, []).append(p.place_id)
+    return clusters
+
+
+# ---------------------------------------------------------------------------
 # 5.3.1 / 5.3.3 / 5.3.5 PlaceCandidateService
 # ---------------------------------------------------------------------------
 
@@ -696,6 +773,9 @@ class PlaceCandidateService:
             "tag": poi.tag,
             "rating": poi.rating,
             "cost": poi.cost,
+            "adcode": poi.adcode,
+            "district": poi.district,
+            "photos": list(poi.photos or []),
             "opening_hours": poi.opening_hours,
         }
 
@@ -722,6 +802,9 @@ class PlaceCandidateService:
             tag=data.get("tag", ""),
             rating=data.get("rating"),
             cost=data.get("cost"),
+            adcode=data.get("adcode", ""),
+            district=data.get("district", ""),
+            photos=list(data.get("photos") or []),
             opening_hours=data.get("opening_hours", ""),
             info="OK",
             status=True,
@@ -891,17 +974,32 @@ class PlaceCandidateService:
             if c:
                 candidates.append(c)
 
-        ranked, rank_warnings = filter_and_rank(
-            candidates,
-            plan,
-            max_places=limit,
-            bucket_cap=self.config.bucket_cap,
+        # 按类别拆分，分别过滤打分
+        scenic_raw = [c for c in candidates if c.category == "景点"]
+        food_raw = [c for c in candidates if c.category == "餐厅"]
+        hotel_raw = [c for c in candidates if c.category == "酒店"]
+
+        scenic_ranked, scenic_w = filter_and_rank(
+            scenic_raw, plan, max_places=limit, bucket_cap=self.config.bucket_cap,
         )
-        warnings.extend(rank_warnings)
+        food_ranked, food_w = filter_and_rank(
+            food_raw, plan, max_places=DEFAULT_MAX_FOOD_PLACES, bucket_cap=self.config.bucket_cap,
+        )
+        hotel_ranked, hotel_w = filter_and_rank(
+            hotel_raw, plan, max_places=DEFAULT_MAX_HOTEL_PLACES, bucket_cap=self.config.bucket_cap,
+        )
+        warnings.extend(scenic_w + food_w + hotel_w)
+
+        all_ranked = scenic_ranked + food_ranked + hotel_ranked
+        clusters = build_cluster_map(scenic_ranked)
 
         return CandidatePool(
             city=plan.city,
-            places=ranked,
+            places=all_ranked,
+            scenic_places=scenic_ranked,
+            food_places=food_ranked,
+            hotel_places=hotel_ranked,
+            district_clusters=clusters,
             query_plan=plan,
             fetched_at=datetime.now(timezone.utc).isoformat(),
             warnings=warnings,
@@ -938,6 +1036,10 @@ class PlaceCandidateService:
     @staticmethod
     def to_prompt_items(pool: CandidatePool) -> list[dict[str, Any]]:
         return pool.to_prompt_items()
+
+    @staticmethod
+    def to_prompt_sections(pool: CandidatePool) -> dict[str, Any]:
+        return pool.to_prompt_sections()
 
     async def resolve_name(
         self,

@@ -29,6 +29,14 @@ class PlannerState(TypedDict, total=False):
     use_tools: bool
     allow_fallback: bool
 
+    # 分类候选池（B类动态城市全链路驱动）
+    candidate_sections: dict[str, Any]
+    scenic_candidates: list[Any]
+    food_candidates: list[Any]
+    hotel_candidates: list[Any]
+    district_clusters: dict[str, list[str]]
+    candidate_index: dict[str, Any]
+
     # --- 中间产物 ---
     # LangGraph 消息累加器：ToolNode / 节点返回 {"messages": [...]} 时自动 append
     messages: Annotated[list, add]
