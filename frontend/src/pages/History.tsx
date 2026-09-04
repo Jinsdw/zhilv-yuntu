@@ -8,7 +8,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import {
-  CheckOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
@@ -477,7 +476,7 @@ export default function History() {
                   </Flex>
                 </Flex>
 
-                {/* 选中角标：左下角三角形 + 对勾 */}
+                {/* 选中角标：左下角三角形 */}
                 {selected && (
                   <div
                     aria-hidden
@@ -489,15 +488,8 @@ export default function History() {
                       height: 34,
                       background: '#C0472F',
                       clipPath: 'polygon(0 0, 0 100%, 100% 100%)',
-                      display: 'flex',
-                      alignItems: 'flex-end',
-                      justifyContent: 'flex-start',
-                      paddingLeft: 5,
-                      paddingBottom: 5,
                     }}
-                  >
-                    <CheckOutlined style={{ color: '#fff', fontSize: 13 }} />
-                  </div>
+                  />
                 )}
               </div>
             </Col>
