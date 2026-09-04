@@ -57,6 +57,7 @@
 #### 第九阶段：测试
 - 服务层单元测试：`test_amap_geo_service`（60 项）、`test_map_service`（51 项）等
 - API 集成测试：`test_api_integration`（21 项，真实 FastAPI + 临时 SQLite，mock 外部网络）
+- Agent 输出验证测试：`test_agent_output_validation`（26 项，覆盖输出结构、预算一致性、贴士分组、特殊需求、编辑、兜底、B类候选池）
 - 覆盖健康检查、生成→落库→历史→导出→编辑→删除全链路及 400/404/422/500/503 错误路径
 
 ### 修复
@@ -73,7 +74,6 @@
 ## [Unreleased]
 
 ### 规划中
-- RAG 检索测试（9.1.4）与 Agent 输出验证测试（9.1.5）
 - 功能调试、性能优化（缓存策略、检索、LLM 调用、前端加载）
 - 错误处理完善与优雅降级
 - 生产部署（环境变量、Dockerfile 优化、服务器准备）
