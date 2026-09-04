@@ -42,6 +42,22 @@ DEFAULT_EXPORT_DIR = "backend/exports"
 DEFAULT_EXPIRE_HOURS = 24
 
 
+def _first_image(images: List[str], cover: Optional[str] = None) -> Optional[str]:
+    """取第一张可用图片 URL（优先封面），供 Markdown 导出使用。"""
+    candidates = ([cover] if cover else []) + list(images or [])
+    for url in candidates:
+        if url and url.strip():
+            return url.strip()
+    return None
+
+
+def _md_image(alt: str, url: Optional[str]) -> Optional[str]:
+    """构造 Markdown 图片行；URL 用尖括号包裹以兼容特殊字符。"""
+    if not url:
+        return None
+    return f"![{alt}](<{url}>)"
+
+
 # ==================== 枚举定义 ====================
 
 class ExportFormat(str, Enum):
@@ -448,6 +464,12 @@ class ExportService:
                 lines.append(f"- **活动**: {item.activity}")
                 if item.place.address:
                     lines.append(f"- **地址**: {item.place.address}")
+                image_line = _md_image(
+                    item.place.name,
+                    _first_image(item.place.images, item.place.cover_image),
+                )
+                if image_line:
+                    lines.append(image_line)
                 if item.tips:
                     for tip in item.tips:
                         lines.append(f"- **贴士**: {tip}")
@@ -465,14 +487,23 @@ class ExportService:
                 lines.append(f"🌅 早餐: {day.breakfast.name}")
                 if day.breakfast.address:
                     lines.append(f"   地址: {day.breakfast.address}")
+                breakfast_image = _md_image(day.breakfast.name, _first_image(day.breakfast.images))
+                if breakfast_image:
+                    lines.append(f"   {breakfast_image}")
             if day.lunch:
                 lines.append(f"🍜 午餐: {day.lunch.name}")
                 if day.lunch.address:
                     lines.append(f"   地址: {day.lunch.address}")
+                lunch_image = _md_image(day.lunch.name, _first_image(day.lunch.images))
+                if lunch_image:
+                    lines.append(f"   {lunch_image}")
             if day.dinner:
                 lines.append(f"🍽 晚餐: {day.dinner.name}")
                 if day.dinner.address:
                     lines.append(f"   地址: {day.dinner.address}")
+                dinner_image = _md_image(day.dinner.name, _first_image(day.dinner.images))
+                if dinner_image:
+                    lines.append(f"   {dinner_image}")
 
             # 当日费用
             if opts.include_budget:

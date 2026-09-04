@@ -20,6 +20,7 @@ from app.models.schemas import (
     ItineraryDay,
     ItineraryItem,
     PlaceInfo,
+    RestaurantInfo,
     TripResponse,
     WeatherInfo,
 )
@@ -57,12 +58,24 @@ def _sample_trip() -> TripResponse:
                             coordinate=Coordinate(latitude=39.9163, longitude=116.3972),
                             category="景点",
                             ticket_price=60.0,
+                            images=["https://example.com/gugong.jpg"],
+                            cover_image="https://example.com/gugong-cover.jpg",
                         ),
                         activity="游览",
                         ticket_price=60.0,
                     )
                 ],
                 total_places=1,
+                lunch=RestaurantInfo(
+                    place_id="r1",
+                    name="四季民福烤鸭店",
+                    coordinate=Coordinate(latitude=39.9150, longitude=116.3960),
+                    address="东城区灯市口西街32号",
+                    cuisine_type="烤鸭",
+                    price_range="100-200元",
+                    avg_price=150.0,
+                    images=["https://example.com/restaurant.jpg"],
+                ),
                 weather=WeatherInfo(
                     forecast_date=date(2026, 9, 1),
                     temp_high=30,
@@ -166,6 +179,26 @@ class TestExportToMarkdown:
         """天气信息"""
         content = await service.export_to_markdown(sample_trip)
         assert "晴" in content
+
+    async def test_place_image(self, service, sample_trip):
+        """行程项目包含封面图片"""
+        content = await service.export_to_markdown(sample_trip)
+        assert "![故宫](<https://example.com/gugong-cover.jpg>)" in content
+
+    async def test_restaurant_image(self, service, sample_trip):
+        """餐饮安排包含图片"""
+        content = await service.export_to_markdown(sample_trip)
+        assert "![四季民福烤鸭店](<https://example.com/restaurant.jpg>)" in content
+
+    async def test_missing_image_skipped(self, service):
+        """无图片时正常导出且不出现空图片行"""
+        trip = _sample_trip()
+        trip.days[0].items[0].place.images = []
+        trip.days[0].items[0].place.cover_image = None
+        trip.days[0].lunch = None
+        content = await service.export_to_markdown(trip)
+        assert "](<" not in content
+        assert "故宫" in content
 
 
 @pytest.mark.asyncio
