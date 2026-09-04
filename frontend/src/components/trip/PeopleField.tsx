@@ -21,14 +21,14 @@ export default function PeopleField() {
       <Form.Item label="同行状态" style={{ marginBottom: 16 }}>
         <Flex wrap gap={16}>
           {COMPANION_SWITCHES.map((item) => (
-            <Form.Item key={item.name} name={item.name} valuePropName="checked" noStyle>
-              <Flex align="center" gap={6}>
+            <Flex key={item.name} align="center" gap={6}>
+              <Form.Item name={item.name} valuePropName="checked" noStyle>
                 <Switch size="small" />
-                <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                  {item.label}
-                </Typography.Text>
-              </Flex>
-            </Form.Item>
+              </Form.Item>
+              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                {item.label}
+              </Typography.Text>
+            </Flex>
           ))}
         </Flex>
       </Form.Item>
