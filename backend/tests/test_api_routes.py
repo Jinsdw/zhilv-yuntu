@@ -20,6 +20,8 @@ from app.models.schemas import (
     ItineraryDay,
     ItineraryItem,
     PlaceInfo,
+    TripHistory,
+    TripRequest,
     TripHistorySummary,
     TripResponse,
     WeatherInfo,
@@ -185,6 +187,28 @@ class TestTripApi:
         assert body["total"] == 1
         assert body["items"][0]["destination"] == "北京"
 
+    def test_get_trip_detail_success(self, client):
+        """GET /trip/{trip_id} 返回完整行程详情"""
+        history = TripHistory(
+            history_id="TRP-API-001",
+            request=TripRequest(**_future_trip_request()),
+            response=_sample_trip(),
+        )
+        with patch("app.api.routes.trip.trip_service.get_trip", return_value=history):
+            resp = client.get("/trip/TRP-API-001")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["trip_id"] == "TRP-API-001"
+        assert body["destination"] == "北京"
+        assert len(body["days"]) == 1
+
+    def test_get_trip_detail_not_found(self, client):
+        """行程不存在 → 404"""
+        with patch("app.api.routes.trip.trip_service.get_trip", return_value=None):
+            resp = client.get("/trip/TRP-API-404")
+        assert resp.status_code == 404
+        assert resp.json()["error_code"] == "TRIP_NOT_FOUND"
+
     def test_delete_trip_success(self, client):
         """DELETE /trip/history/{id} → 204"""
         with patch("app.api.routes.trip.trip_service.delete_trip", return_value=True):
@@ -196,6 +220,48 @@ class TestTripApi:
         with patch("app.api.routes.trip.trip_service.delete_trip", return_value=False):
             resp = client.delete("/trip/history/TRP-API-001")
         assert resp.status_code == 404
+
+    def test_batch_delete_trips_success(self, client):
+        """POST /trip/history/batch-delete 批量删除"""
+        with patch("app.api.routes.trip.trip_service.delete_trips", return_value=2) as mock_del:
+            resp = client.post(
+                "/trip/history/batch-delete",
+                json={"trip_ids": ["TRP-API-001", "TRP-API-002"]},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["affected"] == 2
+        assert body["total"] == 2
+        mock_del.assert_called_once_with(["TRP-API-001", "TRP-API-002"])
+
+    def test_batch_delete_trips_empty_ids(self, client):
+        """批量删除空 ID 列表 → 422"""
+        resp = client.post("/trip/history/batch-delete", json={"trip_ids": []})
+        assert resp.status_code == 422
+
+    def test_batch_favorite_trips_success(self, client):
+        """POST /trip/history/batch-favorite 批量收藏"""
+        with patch("app.api.routes.trip.trip_service.set_favorites", return_value=3) as mock_fav:
+            resp = client.post(
+                "/trip/history/batch-favorite",
+                json={"trip_ids": ["TRP-API-001", "TRP-API-002", "TRP-API-003"], "is_favorite": True},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["affected"] == 3
+        assert body["total"] == 3
+        mock_fav.assert_called_once_with(
+            ["TRP-API-001", "TRP-API-002", "TRP-API-003"],
+            True,
+        )
+
+    def test_batch_favorite_trips_empty_ids(self, client):
+        """批量收藏空 ID 列表 → 422"""
+        resp = client.post(
+            "/trip/history/batch-favorite",
+            json={"trip_ids": [], "is_favorite": True},
+        )
+        assert resp.status_code == 422
 
 
 class TestExportApi:

@@ -78,3 +78,11 @@ export interface TripHistoryListResponse {
   /** 偏移量 */
   offset: number
 }
+
+/** 批量操作结果：与 schemas.TripBatchResult 对齐 */
+export interface TripBatchResult {
+  /** 受影响记录数 */
+  affected: number
+  /** 请求记录总数 */
+  total: number
+}

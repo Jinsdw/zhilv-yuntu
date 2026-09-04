@@ -22,6 +22,9 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query
 
 from app.models.schemas import (
+    TripBatchDeleteRequest,
+    TripBatchFavoriteRequest,
+    TripBatchResult,
     TripEditRequest,
     TripHistoryListResponse,
     TripRequest,
@@ -73,6 +76,35 @@ def list_history(
         order_desc=order_desc,
     )
     return TripHistoryListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.post("/history/batch-delete", response_model=TripBatchResult, status_code=200)
+def batch_delete_trips(
+    body: TripBatchDeleteRequest,
+) -> TripBatchResult:
+    """批量删除行程历史记录。"""
+    affected = trip_service.delete_trips(body.trip_ids)
+    return TripBatchResult(affected=affected, total=len(body.trip_ids))
+
+
+@router.post("/history/batch-favorite", response_model=TripBatchResult, status_code=200)
+def batch_favorite_trips(
+    body: TripBatchFavoriteRequest,
+) -> TripBatchResult:
+    """批量收藏 / 取消收藏行程历史记录。"""
+    affected = trip_service.set_favorites(body.trip_ids, body.is_favorite)
+    return TripBatchResult(affected=affected, total=len(body.trip_ids))
+
+
+@router.get("/{trip_id}", response_model=TripResponse, status_code=200)
+def get_trip_detail(
+    trip_id: str = Path(..., description="行程ID"),
+) -> TripResponse:
+    """获取行程详情（完整 TripResponse，供历史记录点击回看）。"""
+    history = trip_service.get_trip(trip_id)
+    if not history:
+        raise TripNotFoundError(f"行程不存在: {trip_id}")
+    return history.response
 
 
 @router.delete("/history/{trip_id}", status_code=204)

@@ -1,10 +1,10 @@
 /**
  * 8.3.2 结果页：行程方案展示（按 DESIGN.md 3.3 组件树组装）。
- * 数据优先读 location.state，刷新后回退 sessionStorage 快照（见 utils/snapshot.ts）。
- * 单日编辑成功后就地替换 trip 并更新快照。
+ * 数据来源优先级：location.state（生成/编辑后跳转）→ URL ?trip_id=（历史回看，异步拉取）
+ * → sessionStorage 快照（见 utils/snapshot.ts）。单日编辑成功后就地替换 trip 并更新快照。
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
   DownloadOutlined,
@@ -19,11 +19,12 @@ import {
   Dropdown,
   Empty,
   Flex,
+  Spin,
   Tabs,
   Tag,
   Typography,
 } from 'antd'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import BudgetPanel from '@/components/budget/BudgetPanel'
 import MapPanel from '@/components/map/MapPanel'
@@ -45,15 +46,74 @@ export default function Result() {
   const { message } = AntdApp.useApp()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const urlTripId = searchParams.get('trip_id')
 
   const [trip, setTrip] = useState<TripResponse | null>(() => {
     return (location.state as ResultLocationState | null)?.trip ?? readTripSnapshot()?.trip ?? null
   })
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [editingDay, setEditingDay] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
   const [exporting, setExporting] = useState(false)
 
   const weatherList = useMemo(() => (trip?.days ?? []).map((day) => ({ date: day.itinerary_date, weather: day.weather })), [trip])
+
+  // 历史回看：URL 携带 trip_id 时，从后端拉取完整行程详情
+  useEffect(() => {
+    if (!urlTripId) return
+    // 已有同 ID 的行程（如 state/快照命中）则无需重复拉取
+    if (trip?.trip_id === urlTripId) return
+
+    let cancelled = false
+    // 切换历史行程时清空旧行程，避免短暂展示上一条数据
+    setTrip(null)
+    setLoading(true)
+    setLoadError(false)
+    tripApi
+      .getTrip(urlTripId)
+      .then((detail) => {
+        if (cancelled) return
+        setTrip(detail)
+        writeTripSnapshot({ trip: detail, request: readTripSnapshot()?.request })
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setLoadError(true)
+        message.error(toErrorMessage(error, '加载历史行程失败'))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [urlTripId, trip?.trip_id, message])
+
+  if (loading && !trip) {
+    return (
+      <Flex vertical align="center" justify="center" gap={16} style={{ minHeight: '60vh' }}>
+        <Spin size="large" />
+        <Typography.Text type="secondary">正在加载历史行程详情…</Typography.Text>
+      </Flex>
+    )
+  }
+
+  if (loadError && !trip) {
+    return (
+      <Flex vertical align="center" justify="center" gap={8} style={{ minHeight: '60vh' }}>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={<Typography.Text type="secondary">历史行程加载失败，可能已被删除。</Typography.Text>}
+        >
+          <Button type="primary" onClick={() => navigate(ROUTES.history)}>
+            返回历史记录
+          </Button>
+        </Empty>
+      </Flex>
+    )
+  }
 
   if (!trip) {
     return (

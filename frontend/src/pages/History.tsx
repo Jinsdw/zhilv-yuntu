@@ -1,8 +1,7 @@
 /**
  * 8.3.3 历史页：历史行程列表（分页拉取 TripHistoryListResponse）。
  * 工具条：目的地搜索（防抖）+ 收藏筛选 + 排序；行操作：导出 / 删除（Popconfirm）。
- * 说明：后端目前无行程详情接口（GET /trip/{id} 未提供），历史行不提供“查看详情”，
- * 详情查看需结果页重新生成或后续阶段补充详情接口。
+ * 点击历史行 → 携带 trip_id 跳转结果页，结果页通过 GET /trip/{trip_id} 拉取完整详情。
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -10,7 +9,9 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   DeleteOutlined,
   DownloadOutlined,
+  EyeOutlined,
   HeartFilled,
+  HeartOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
 import {
@@ -18,6 +19,7 @@ import {
   Avatar,
   Button,
   Card,
+  Checkbox,
   Dropdown,
   Flex,
   Input,
@@ -31,8 +33,10 @@ import {
   Typography,
 } from 'antd'
 import type { MenuProps } from 'antd'
+import { useNavigate } from 'react-router-dom'
 
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { ROUTES } from '@/router/routes'
 import { exportApi, tripApi, type HistoryQueryParams } from '@/services/api'
 import type { TripHistorySummary } from '@/types'
 import { toErrorMessage } from '@/utils/error'
@@ -65,6 +69,7 @@ function sortParams(mode: SortMode): Pick<HistoryQueryParams, 'order_by' | 'orde
 
 export default function History() {
   const { message } = AntdApp.useApp()
+  const navigate = useNavigate()
 
   const [keyword, setKeyword] = useState('')
   const debouncedKeyword = useDebouncedValue(keyword.trim(), 400)
@@ -76,6 +81,8 @@ export default function History() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [batchBusy, setBatchBusy] = useState(false)
 
   // 分页查询参数：依赖项变化时重置到第 1 页
   useEffect(() => {
@@ -109,6 +116,68 @@ export default function History() {
     void load()
   }, [load])
 
+  // 分页 / 筛选变化时清空已选
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [page, debouncedKeyword, favoriteOnly, sortMode])
+
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    setSelectedIds((prev) => {
+      const pageIds = items.map((item) => item.id)
+      const allSelected = pageIds.length > 0 && pageIds.every((id) => prev.has(id))
+      const next = new Set(prev)
+      if (allSelected) {
+        pageIds.forEach((id) => next.delete(id))
+      } else {
+        pageIds.forEach((id) => next.add(id))
+      }
+      return next
+    })
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return
+    setBatchBusy(true)
+    try {
+      const res = await tripApi.batchDeleteHistory(Array.from(selectedIds))
+      message.success(`已删除 ${res.affected} 条`)
+      setSelectedIds(new Set())
+      if (items.length === res.affected && page > 1) {
+        setPage((p) => p - 1)
+      } else {
+        void load()
+      }
+    } catch (error) {
+      message.error(toErrorMessage(error, '批量删除失败'))
+    } finally {
+      setBatchBusy(false)
+    }
+  }
+
+  const handleBatchFavorite = async (isFavorite: boolean) => {
+    if (selectedIds.size === 0) return
+    setBatchBusy(true)
+    try {
+      const res = await tripApi.batchSetFavorite(Array.from(selectedIds), isFavorite)
+      message.success(isFavorite ? `已收藏 ${res.affected} 条` : `已取消收藏 ${res.affected} 条`)
+      setSelectedIds(new Set())
+      void load()
+    } catch (error) {
+      message.error(toErrorMessage(error, isFavorite ? '批量收藏失败' : '批量取消收藏失败'))
+    } finally {
+      setBatchBusy(false)
+    }
+  }
+
   const handleDelete = async (id: string) => {
     setDeletingId(id)
     try {
@@ -136,10 +205,17 @@ export default function History() {
     }
   }
 
+  const openTripDetail = (item: TripHistorySummary) => {
+    navigate(`${ROUTES.result}?trip_id=${encodeURIComponent(item.id)}`)
+  }
+
   const rowActions: MenuProps['items'] = [
     { key: 'md', label: '导出 Markdown', icon: <DownloadOutlined /> },
     { key: 'pdf', label: '导出 PDF', icon: <DownloadOutlined /> },
   ]
+
+  const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id))
+  const someSelected = selectedIds.size > 0
 
   return (
     <Flex vertical gap={16}>
@@ -154,6 +230,14 @@ export default function History() {
 
       <Card styles={{ body: { padding: 16 } }}>
         <Flex wrap gap={12} align="center">
+          <Checkbox
+            checked={allSelected}
+            indeterminate={someSelected && !allSelected}
+            onChange={toggleAll}
+            style={{ marginRight: 4 }}
+          >
+            全选本页
+          </Checkbox>
           <Input
             prefix={<SearchOutlined />}
             placeholder="按目的地搜索"
@@ -182,6 +266,47 @@ export default function History() {
             共 {total} 条
           </Typography.Text>
         </Flex>
+
+        {someSelected && (
+          <Flex wrap gap={12} align="center" style={{ marginTop: 16, paddingTop: 12, borderTop: `1px dashed rgba(128,128,128,0.25)` }}>
+            <Typography.Text strong style={{ fontSize: 13 }}>
+              已选 {selectedIds.size} 条
+            </Typography.Text>
+            <Button
+              type="primary"
+              ghost
+              icon={<HeartFilled />}
+              loading={batchBusy}
+              disabled={batchBusy}
+              onClick={() => void handleBatchFavorite(true)}
+            >
+              批量收藏
+            </Button>
+            <Button
+              icon={<HeartOutlined />}
+              loading={batchBusy}
+              disabled={batchBusy}
+              onClick={() => void handleBatchFavorite(false)}
+            >
+              取消收藏
+            </Button>
+            <Popconfirm
+              title={`删除选中的 ${selectedIds.size} 条历史记录？`}
+              description="删除后不可恢复"
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void handleBatchDelete()}
+            >
+              <Button danger icon={<DeleteOutlined />} loading={batchBusy} disabled={batchBusy}>
+                批量删除
+              </Button>
+            </Popconfirm>
+            <Button type="link" size="small" disabled={batchBusy} onClick={() => setSelectedIds(new Set())}>
+              清除选择
+            </Button>
+          </Flex>
+        )}
       </Card>
 
       <Card styles={{ body: { padding: 16 } }}>
@@ -193,7 +318,20 @@ export default function History() {
           }}
           renderItem={(item) => (
             <List.Item
+              onClick={() => openTripDetail(item)}
+              style={{ cursor: 'pointer' }}
               actions={[
+                <Button
+                  key="view"
+                  type="text"
+                  icon={<EyeOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openTripDetail(item)
+                  }}
+                >
+                  查看
+                </Button>,
                 <Popconfirm
                   key="delete"
                   title="删除这条历史记录？"
@@ -203,18 +341,30 @@ export default function History() {
                   okButtonProps={{ danger: true }}
                   onConfirm={() => void handleDelete(item.id)}
                 >
-                  <Button type="text" danger icon={<DeleteOutlined />} loading={deletingId === item.id}>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    loading={deletingId === item.id}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     删除
                   </Button>
                 </Popconfirm>,
                 <Dropdown key="export" menu={{ items: rowActions, onClick: ({ key, domEvent }) => { domEvent.stopPropagation(); void handleExport(item, key as 'markdown' | 'pdf') } }}>
-                  <Button type="text" icon={<DownloadOutlined />}>
+                  <Button type="text" icon={<DownloadOutlined />} onClick={(e) => e.stopPropagation()}>
                     导出
                   </Button>
                 </Dropdown>,
               ]}
             >
               <Flex gap={12} align="flex-start" style={{ width: '100%' }}>
+                <Checkbox
+                  checked={selectedIds.has(item.id)}
+                  onChange={() => toggleOne(item.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ marginTop: 12 }}
+                />
                 <Avatar shape="square" size={44} style={{ background: 'transparent', border: '1px solid currentColor', color: 'inherit', fontSize: 14 }}>
                   {item.destination.slice(0, 1)}
                 </Avatar>

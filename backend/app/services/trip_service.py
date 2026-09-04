@@ -971,6 +971,14 @@ class TripService:
         """删除行程。"""
         return self._storage.delete_trip(trip_id)
 
+    def delete_trips(self, trip_ids: List[str]) -> int:
+        """批量删除行程，返回实际删除数量。"""
+        return self._storage.delete_trips(trip_ids)
+
+    def set_favorites(self, trip_ids: List[str], is_favorite: bool) -> int:
+        """批量设置收藏状态，返回实际更新数量。"""
+        return self._storage.set_favorites(trip_ids, is_favorite)
+
     # ================================================================
     # 辅助
     # ================================================================

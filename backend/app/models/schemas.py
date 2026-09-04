@@ -510,6 +510,36 @@ class TripEditRequest(BaseModel):
     context: Optional[str] = Field(default=None, description="可选的攻略上下文")
 
 
+class TripBatchDeleteRequest(BaseModel):
+    """行程历史批量删除请求模型（Phase 7.1.7）"""
+
+    trip_ids: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="行程ID列表",
+    )
+
+
+class TripBatchFavoriteRequest(BaseModel):
+    """行程历史批量收藏/取消收藏请求模型（Phase 7.1.7）"""
+
+    trip_ids: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="行程ID列表",
+    )
+    is_favorite: bool = Field(..., description="是否收藏")
+
+
+class TripBatchResult(BaseModel):
+    """行程历史批量操作结果模型（Phase 7.1.7）"""
+
+    affected: int = Field(..., ge=0, description="受影响记录数")
+    total: int = Field(..., ge=0, description="请求记录总数")
+
+
 class TripHistorySummary(BaseModel):
     """行程历史摘要模型（列表页轻量卡片，不含每日明细）"""
 

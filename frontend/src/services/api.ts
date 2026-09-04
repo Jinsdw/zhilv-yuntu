@@ -229,11 +229,41 @@ export const tripApi = {
   },
 
   /**
+   * 行程详情（历史记录点击回看）
+   * GET /trip/{trip_id}
+   * 说明：返回完整 TripResponse（含每日明细、天气、预算），后端同时累加访问次数。
+   */
+  getTrip(tripId: string): Promise<TripResponse> {
+    return api.get<TripResponse>(`/trip/${encodeURIComponent(tripId)}`)
+  },
+
+  /**
    * 8.2.4 行程历史列表（分页摘要，不含每日明细）
    * GET /trip/history
    */
   listHistory(params: HistoryQueryParams = {}): Promise<TripHistoryListResponse> {
     return api.get<TripHistoryListResponse>('/trip/history', { params })
+  },
+
+  /**
+   * 批量删除行程历史
+   * POST /trip/history/batch-delete
+   * 说明：请求体 { trip_ids: string[] }，返回受影响数量。
+   */
+  batchDeleteHistory(tripIds: string[]): Promise<TripBatchResult> {
+    return api.post<TripBatchResult>('/trip/history/batch-delete', { trip_ids: tripIds })
+  },
+
+  /**
+   * 批量收藏 / 取消收藏行程历史
+   * POST /trip/history/batch-favorite
+   * 说明：请求体 { trip_ids: string[], is_favorite: boolean }，返回受影响数量。
+   */
+  batchSetFavorite(tripIds: string[], isFavorite: boolean): Promise<TripBatchResult> {
+    return api.post<TripBatchResult>('/trip/history/batch-favorite', {
+      trip_ids: tripIds,
+      is_favorite: isFavorite,
+    })
   },
 
   /**

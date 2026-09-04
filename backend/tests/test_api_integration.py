@@ -408,6 +408,72 @@ class TestTripApiIntegration:
         resp = client.get("/trip/history", params={"limit": 0})
         assert resp.status_code == 422
 
+    def test_get_trip_detail_full_flow(self, app_env):
+        """生成行程 → GET /trip/{id} 返回真实落库的完整详情"""
+        client, _, _ = app_env
+        trip_id = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
+
+        resp = client.get(f"/trip/{trip_id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["trip_id"] == trip_id
+        assert body["destination"] == "北京"
+        assert len(body["days"]) == 3
+        # 详情与落库数据一致（含地图补全后的真实坐标）
+        first_place = body["days"][0]["items"][0]["place"]
+        assert first_place["coordinate"]["latitude"] != 0.0
+        assert first_place["address"] != "待地图服务补全"
+
+    def test_get_trip_detail_not_found_404(self, app_env):
+        """查询不存在的行程 → 404"""
+        client, _, _ = app_env
+        resp = client.get("/trip/TRP-NOT-EXIST")
+        assert resp.status_code == 404
+        assert resp.json()["error_code"] == "TRIP_NOT_FOUND"
+
+    def test_batch_delete_trips_full_flow(self, app_env):
+        """生成两条行程 → 批量删除 → 历史不可见"""
+        client, _, temp_storage = app_env
+        id1 = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
+        id2 = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
+
+        resp = client.post("/trip/history/batch-delete", json={"trip_ids": [id1, id2]})
+        assert resp.status_code == 200
+        assert resp.json()["affected"] == 2
+        assert temp_storage.get_trip_as_history(id1) is None
+        assert temp_storage.get_trip_as_history(id2) is None
+
+    def test_batch_favorite_trips_full_flow(self, app_env):
+        """生成两条行程 → 批量收藏 → 仅看收藏可见；再批量取消 → 不可见"""
+        client, _, _ = app_env
+        id1 = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
+        id2 = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
+
+        resp = client.post(
+            "/trip/history/batch-favorite",
+            json={"trip_ids": [id1, id2], "is_favorite": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["affected"] == 2
+
+        fav_resp = client.get("/trip/history", params={"is_favorite": True})
+        assert fav_resp.status_code == 200
+        fav_ids = [item["id"] for item in fav_resp.json()["items"]]
+        assert id1 in fav_ids
+        assert id2 in fav_ids
+
+        resp = client.post(
+            "/trip/history/batch-favorite",
+            json={"trip_ids": [id1, id2], "is_favorite": False},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["affected"] == 2
+
+        fav_resp = client.get("/trip/history", params={"is_favorite": True})
+        fav_ids = [item["id"] for item in fav_resp.json()["items"]]
+        assert id1 not in fav_ids
+        assert id2 not in fav_ids
+
     def test_delete_trip_full_flow(self, app_env):
         """生成 → 删除 → 204 → 历史不可见 → 再删 404"""
         client, _, temp_storage = app_env

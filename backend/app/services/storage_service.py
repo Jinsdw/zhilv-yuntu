@@ -406,6 +406,58 @@ class StorageService:
         except SQLAlchemyError as e:
             logger.error(f"删除行程记录失败: {e}")
             raise DatabaseError(f"删除行程记录失败: {e}")
+
+    def delete_trips(self, trip_ids: List[str]) -> int:
+        """
+        批量删除行程记录
+        
+        Args:
+            trip_ids: 行程ID列表
+            
+        Returns:
+            删除的记录数
+        """
+        if not trip_ids:
+            return 0
+        try:
+            with self.get_session() as session:
+                result = session.query(TripHistoryDB).filter(
+                    TripHistoryDB.id.in_(trip_ids)
+                ).delete(synchronize_session=False)
+                session.commit()
+                return result
+                
+        except SQLAlchemyError as e:
+            logger.error(f"批量删除行程记录失败: {e}")
+            raise DatabaseError(f"批量删除行程记录失败: {e}")
+
+    def set_favorites(self, trip_ids: List[str], is_favorite: bool) -> int:
+        """
+        批量设置收藏状态
+        
+        Args:
+            trip_ids: 行程ID列表
+            is_favorite: 是否收藏
+            
+        Returns:
+            更新的记录数
+        """
+        if not trip_ids:
+            return 0
+        try:
+            with self.get_session() as session:
+                result = session.query(TripHistoryDB).filter(
+                    TripHistoryDB.id.in_(trip_ids)
+                ).update(
+                    {"is_favorite": is_favorite, "updated_at": datetime.now()},
+                    synchronize_session=False,
+                )
+                session.commit()
+                return result
+                
+        except SQLAlchemyError as e:
+            logger.error(f"批量设置收藏状态失败: {e}")
+            raise DatabaseError(f"批量设置收藏状态失败: {e}")
     
     # ==================== 历史记录查询 ====================
     
