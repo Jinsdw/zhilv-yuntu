@@ -1,5 +1,7 @@
 """
 智旅云图 - RAG 检索器测试
+
+全部 mock LLM / Rerank 模型 / Redis / 向量库，不打真实外部服务。
 """
 
 import pytest
@@ -47,6 +49,8 @@ class TestIntentDetector:
 
     def setup_method(self):
         self.detector = IntentDetector()
+        # 不初始化真实 LLM 客户端，走关键词降级分支
+        self.detector._get_client = lambda: None
 
     def test_detect_with_fallback(self):
         """测试降级意图检测（无 LLM 时）"""
@@ -111,20 +115,86 @@ class TestRetrievalCache:
         assert key1 != key3
         assert key1.startswith("rag:retrieval:")
 
-    def test_cache_disconnected(self):
+    def test_get_disconnected_returns_none(self):
         """测试 Redis 未连接时返回 None"""
-        result = self.cache.get("测试查询")
-        assert result is None
+        with patch.object(self.cache, "_get_client", return_value=None):
+            result = self.cache.get("测试查询")
+            assert result is None
 
-    def test_cache_set_disconnected(self):
+    def test_set_disconnected_returns_false(self):
         """测试 Redis 未连接时写入返回 False"""
-        result = self.cache.set("测试", "北京", "itinerary", [], {})
-        assert result is False
+        with patch.object(self.cache, "_get_client", return_value=None):
+            result = self.cache.set("测试", "北京", "itinerary", [], {})
+            assert result is False
 
     def test_get_stats_disconnected(self):
         """测试 Redis 未连接时统计"""
-        stats = self.cache.get_stats()
-        assert stats["status"] == "disconnected"
+        with patch.object(self.cache, "_get_client", return_value=None):
+            stats = self.cache.get_stats()
+            assert stats["status"] == "disconnected"
+
+    def test_get_hit_returns_cached_data(self):
+        """测试缓存命中时返回解析后的结果"""
+        import json
+
+        key = self.cache._generate_key("北京三天", "北京", "itinerary")
+        cached_data = {
+            "results": [{"id": "doc1", "document": "缓存文档"}],
+            "query_info": {"original": "北京三天"},
+            "created_at": "2026-09-04 00:00:00",
+        }
+        fake_client = Mock()
+        fake_client.get.return_value = json.dumps(cached_data, ensure_ascii=False)
+
+        with patch.object(self.cache, "_get_client", return_value=fake_client):
+            result = self.cache.get("北京三天", "北京", "itinerary")
+
+        assert result == cached_data
+        fake_client.get.assert_called_once_with(key)
+
+    def test_set_writes_with_ttl(self):
+        """测试缓存写入成功"""
+        fake_client = Mock()
+        with patch.object(self.cache, "_get_client", return_value=fake_client):
+            result = self.cache.set(
+                "北京三天", "北京", "itinerary", [], {"original": "北京三天"}
+            )
+
+        assert result is True
+        fake_client.setex.assert_called_once()
+        key, ttl, payload = fake_client.setex.call_args.args
+        assert key == self.cache._generate_key("北京三天", "北京", "itinerary")
+        assert ttl == self.cache._ttl
+        assert "北京三天" in payload
+
+    def test_invalidate_clears_keys(self):
+        """测试缓存失效"""
+        fake_client = Mock()
+        fake_client.keys.return_value = ["rag:retrieval:aaa", "rag:retrieval:bbb"]
+        fake_client.delete.return_value = 2
+
+        with patch.object(self.cache, "_get_client", return_value=fake_client):
+            deleted = self.cache.invalidate()
+
+        assert deleted == 2
+        fake_client.keys.assert_called_once_with("rag:retrieval:*")
+
+    def test_invalidate_disconnected_returns_zero(self):
+        """测试缓存失效在未连接时返回 0"""
+        with patch.object(self.cache, "_get_client", return_value=None):
+            assert self.cache.invalidate() == 0
+
+    def test_get_stats_connected(self):
+        """测试 Redis 已连接时的统计"""
+        fake_client = Mock()
+        fake_client.keys.return_value = ["rag:retrieval:aaa"]
+
+        with patch.object(self.cache, "_get_client", return_value=fake_client):
+            stats = self.cache.get_stats()
+
+        assert stats["status"] == "connected"
+        assert stats["total_keys"] == 1
+        assert stats["ttl_seconds"] == self.cache._ttl
 
 
 class TestReranker:
@@ -132,27 +202,58 @@ class TestReranker:
 
     def setup_method(self):
         self.reranker = Reranker()
+        # 不加载真实 CrossEncoder（避免联网下载模型），走本地模型/降级分支
+        self.reranker._model = None
+        self.reranker._initialized = True
 
     def test_rerank_empty_documents(self):
         """测试空文档"""
         result = self.reranker.rerank("测试查询", [], top_n=5)
         assert result == []
 
-    def test_rerank_single_document(self):
-        """测试单文档"""
-        docs = [{"document": "这是一个测试文档", "score": 0.8}]
-        result = self.reranker.rerank("测试查询", docs, top_n=5)
-        assert len(result) == 1
-
-    def test_rerank_multiple_documents(self):
-        """测试多文档"""
+    def test_rerank_fallback_returns_documents(self):
+        """测试无模型时返回原始文档"""
         docs = [
             {"document": "文档1", "score": 0.5},
             {"document": "文档2", "score": 0.9},
             {"document": "文档3", "score": 0.3},
         ]
         result = self.reranker.rerank("测试查询", docs, top_n=2)
-        assert len(result) <= 2
+        assert result == docs[:2]
+
+    def test_rerank_uses_model_scores(self):
+        """测试使用模型分数重排并过滤阈值"""
+        class FakeCrossEncoder:
+            def predict(self, pairs):
+                return [0.9, 0.4, 0.2]
+
+        self.reranker._model = FakeCrossEncoder()
+        docs = [
+            {"document": "文档1"},
+            {"document": "文档2"},
+            {"document": "文档3"},
+        ]
+
+        result = self.reranker.rerank("测试查询", docs, top_n=5, score_threshold=0.35)
+
+        assert [d["document"] for d in result] == ["文档1", "文档2"]
+        assert result[0]["rerank_score"] == 0.9
+
+    def test_rerank_limits_top_n(self):
+        """测试 top_n 限制返回数量"""
+        class FakeCrossEncoder:
+            def predict(self, pairs):
+                return [0.9, 0.8, 0.7, 0.6]
+
+        self.reranker._model = FakeCrossEncoder()
+        docs = [
+            {"document": f"文档{i}"} for i in range(4)
+        ]
+
+        result = self.reranker.rerank("测试查询", docs, top_n=2, score_threshold=0.0)
+
+        assert len(result) == 2
+        assert result[0]["document"] == "文档0"
 
 
 class TestRetriever:
@@ -160,6 +261,15 @@ class TestRetriever:
 
     def setup_method(self):
         self.retriever = Retriever()
+        # 不调用真实 LLM，意图检测固定走 itinerary
+        self.retriever.intent_detector.detect = Mock(
+            return_value={
+                "primary_intent": "itinerary",
+                "confidence": 0.5,
+                "secondary_intents": [],
+                "supplementary_terms": [],
+            }
+        )
 
     def test_retriever_components(self):
         """测试组件初始化"""
@@ -220,6 +330,53 @@ class TestRetriever:
         assert "preprocess_ms" in result["stages"]
         assert "intent_detect_ms" in result["stages"]
         assert "total_ms" in result["stages"]
+
+    def test_retrieve_cache_hit_skips_search(self):
+        """测试缓存命中时跳过检索"""
+        cached_result = {
+            "results": [{"id": "doc1", "document": "缓存文档"}],
+            "query_info": {"original": "北京三天"},
+            "cached": True,
+        }
+        with patch.object(self.retriever.cache, "get", return_value=cached_result):
+            with patch.object(self.retriever.search_engine, "search") as mock_search:
+                result = self.retriever.retrieve(query="北京三天", use_cache=True)
+
+        assert result["cached"] is True
+        assert result["results"] == cached_result["results"]
+        mock_search.assert_not_called()
+
+    def test_retrieve_rerank_applies_top_n(self):
+        """测试启用重排时按 top_n 返回"""
+        docs = [
+            {"id": "doc1", "document": "文档1", "metadata": {"city": "北京"}},
+            {"id": "doc2", "document": "文档2", "metadata": {"city": "北京"}},
+        ]
+        with patch.object(self.retriever, "_get_query_embedding", return_value=[0.0] * 256):
+            with patch.object(self.retriever.search_engine, "search", return_value=docs):
+                with patch.object(self.retriever.reranker, "rerank", return_value=docs) as mock_rerank:
+                    result = self.retriever.retrieve(
+                        query="北京景点",
+                        use_cache=False,
+                        use_rerank=True,
+                        top_k=5
+                    )
+
+        assert result["results"] == docs
+        assert mock_rerank.call_args.kwargs["top_n"] == 5
+
+    def test_retrieve_no_results(self):
+        """测试无结果时返回空列表"""
+        with patch.object(self.retriever, "_get_query_embedding", return_value=[0.0] * 256):
+            with patch.object(self.retriever.search_engine, "search", return_value=[]):
+                result = self.retriever.retrieve(
+                    query="随便逛逛",
+                    use_cache=False,
+                    use_rerank=False
+                )
+
+        assert result["results"] == []
+        assert result["cached"] is False
 
 
 class TestRetrievalCacheIntegration:
