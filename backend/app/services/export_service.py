@@ -13,15 +13,18 @@
 
 设计决策：
 - 导出格式：JSON（精简版）、PDF（精美报告）
-- PDF 技术：WeasyPrint + HTML/CSS 模板
+- PDF 技术：WeasyPrint + HTML/CSS 模板（Windows 缺 GTK 时自动降级 reportlab 渲染）
 - 存储策略：本地文件系统
 - 数据范围：仅导出 TripResponse 核心数据
 """
 
+import io
 import json
 import logging
 import os
 import re
+import tempfile
+import urllib.request
 import uuid
 from datetime import datetime, timedelta
 from enum import Enum
@@ -684,6 +687,11 @@ class ExportService:
             for tip in item.tips[:2]:
                 html += f'<div class="item-tip">💡 {tip}</div>'
 
+        image_url = _first_image(item.place.images, item.place.cover_image)
+        if image_url:
+            safe_url = image_url.replace("&", "&amp;").replace('"', "&quot;")
+            html += f'<img class="item-image" src="{safe_url}" alt="{item.place.name}"/>'
+
         html += '</div></div>'
         return html
 
@@ -700,6 +708,11 @@ class ExportService:
             html += f'<div class="meal-cuisine">🍜 {restaurant.cuisine_type}</div>'
         if hasattr(restaurant, 'avg_price'):
             html += f'<div class="meal-price">💰 人均 ¥{restaurant.avg_price:.0f}</div>'
+
+        image_url = _first_image(getattr(restaurant, "images", None))
+        if image_url:
+            safe_url = image_url.replace("&", "&amp;").replace('"', "&quot;")
+            html += f'<img class="meal-image" src="{safe_url}" alt="{restaurant.name}"/>'
 
         html += '</div></div>'
         return html
@@ -770,31 +783,294 @@ class ExportService:
             PDF 文件二进制数据
 
         Raises:
-            ExportError: PDF 渲染依赖（WeasyPrint/GTK 原生库）未就绪
+            ExportError: PDF 渲染依赖（WeasyPrint 与 reportlab 均不可用）未就绪
         """
-        # 延迟导入 WeasyPrint：其依赖 GTK/GLib/Pango 等原生库，
-        # 缺失时只影响 PDF 导出，不应阻塞整个后端服务启动。
+        # 延迟导入 WeasyPrint：其依赖 GTK/GLib/Pango 等原生库，缺失时
+        # 不影响其它功能；本机缺少 GTK 时自动降级到纯 Python 的 reportlab。
         try:
             from weasyprint import HTML, CSS
+
+            html_content = self._render_html(trip_data, options)
+            css_content = self._get_stylesheet()
+            pdf_bytes = HTML(string=html_content).write_pdf(
+                stylesheets=[CSS(string=css_content)]
+            )
+            return pdf_bytes
         except (ImportError, OSError) as e:
+            logger.warning("WeasyPrint/GTK 不可用，降级到 reportlab 渲染 PDF: %s", e)
+            return await self._export_to_pdf_reportlab(trip_data, options)
+
+    async def _export_to_pdf_reportlab(
+        self,
+        trip_data: TripResponse,
+        options: Optional[ExportOptions] = None,
+    ) -> bytes:
+        """
+        使用 reportlab 渲染 PDF（纯 Python，不依赖 GTK 原生库）。
+
+        在 Windows 缺少 GTK 时作为 WeasyPrint 的降级方案，
+        并内嵌景点 / 餐饮图片（图片下载失败时自动跳过，不影响导出）。
+        """
+        try:
+            from reportlab.lib import colors
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import ParagraphStyle
+            from reportlab.lib.units import cm
+            from reportlab.lib.utils import ImageReader
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+            from reportlab.platypus import (
+                Image,
+                KeepTogether,
+                PageBreak,
+                Paragraph,
+                SimpleDocTemplate,
+                Spacer,
+                Table,
+                TableStyle,
+            )
+        except ImportError as e:
             raise ExportError(
-                message=f"PDF 渲染依赖（WeasyPrint/GTK 原生库）未就绪: {e}",
+                message=f"PDF 渲染依赖未就绪（WeasyPrint 与 reportlab 均不可用）: {e}",
                 code="PDF_DEPENDENCY_MISSING",
             ) from e
 
-        # 渲染 HTML
-        html_content = self._render_html(trip_data, options)
+        opts = options or ExportOptions()
+        font_name = "STSong-Light"
+        if font_name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(UnicodeCIDFont(font_name))
 
-        # CSS 样式
-        css_content = self._get_stylesheet()
+        def make_style(name: str, **kwargs) -> ParagraphStyle:
+            defaults = {"fontName": font_name, "wordWrap": "CJK"}
+            defaults.update(kwargs)
+            return ParagraphStyle(name, **defaults)
 
-        # 使用 WeasyPrint 生成 PDF
-        html = HTML(string=html_content)
-        css = CSS(string=css_content)
+        title_style = make_style("cover-title", fontSize=26, leading=34, alignment=1, textColor=colors.HexColor("#2563eb"))
+        subtitle_style = make_style("cover-subtitle", fontSize=14, leading=20, alignment=1, textColor=colors.HexColor("#666666"))
+        trip_name_style = make_style("cover-trip-name", fontSize=22, leading=30, alignment=1)
+        cover_meta_style = make_style("cover-meta", fontSize=11, leading=18, alignment=1, textColor=colors.HexColor("#666666"))
+        section_title_style = make_style("section-title", fontSize=15, leading=22, textColor=colors.HexColor("#2563eb"), spaceBefore=14, spaceAfter=8)
+        day_title_style = make_style("day-title", fontSize=13, leading=20, textColor=colors.HexColor("#2563eb"), spaceBefore=10, spaceAfter=4)
+        theme_style = make_style("day-theme", fontSize=10.5, leading=16, textColor=colors.HexColor("#666666"), spaceAfter=6)
+        item_title_style = make_style("item-title", fontSize=11, leading=16, spaceBefore=8, spaceAfter=2)
+        body_style = make_style("body", fontSize=10, leading=15, spaceAfter=2)
+        small_style = make_style("small", fontSize=9.5, leading=14, textColor=colors.HexColor("#666666"), spaceAfter=1)
+        tip_style = make_style("tip", fontSize=9.5, leading=14, textColor=colors.HexColor("#16a34a"), leftIndent=12, spaceAfter=1)
+        meal_title_style = make_style("meal-title", fontSize=11, leading=16, textColor=colors.HexColor("#92400e"), spaceBefore=8, spaceAfter=2)
+        cost_style = make_style("cost", fontSize=11, leading=16, alignment=2, textColor=colors.HexColor("#2563eb"), spaceBefore=8)
+        tips_category_style = make_style("tips-category", fontSize=11.5, leading=16, textColor=colors.HexColor("#166534"), spaceBefore=8, spaceAfter=3)
+        footer_style = make_style("footer", fontSize=9, leading=14, alignment=1, textColor=colors.HexColor("#999999"), spaceAfter=2)
 
-        pdf_bytes = html.write_pdf(stylesheets=[css])
+        story: List[Any] = []
 
-        return pdf_bytes
+        # ---- 封面 ----
+        story.append(Spacer(1, 2.6 * cm))
+        story.append(Paragraph("智旅云图", title_style))
+        story.append(Spacer(1, 0.35 * cm))
+        story.append(Paragraph("行程规划报告", subtitle_style))
+        story.append(Spacer(1, 2.4 * cm))
+        story.append(Paragraph(self._escape_pdf_text(trip_data.trip_name), trip_name_style))
+        story.append(Spacer(1, 1.4 * cm))
+        story.append(Paragraph(f"目的地：{self._escape_pdf_text(trip_data.destination)}", cover_meta_style))
+        story.append(Paragraph(f"日期：{trip_data.start_date} 至 {trip_data.end_date}", cover_meta_style))
+        story.append(Paragraph(f"天数：{trip_data.total_days} 天", cover_meta_style))
+
+        cover_url = self._trip_cover_image(trip_data)
+        with tempfile.TemporaryDirectory(prefix="zhilv_pdf_") as tmp_dir:
+            if cover_url:
+                cover_img = self._pdf_image_flowable(cover_url, 12.5 * cm, 7.5 * cm, tmp_dir)
+                if cover_img:
+                    story.append(Spacer(1, 1 * cm))
+                    story.append(cover_img)
+            story.append(PageBreak())
+
+            # ---- 概览 ----
+            story.append(Paragraph("行程概览", section_title_style))
+            rows: List[List[Any]] = [
+                ["目的地", self._escape_pdf_text(trip_data.destination)],
+                ["行程时间", f"{trip_data.start_date} 至 {trip_data.end_date}"],
+                ["行程天数", f"{trip_data.total_days} 天"],
+            ]
+            if opts.include_budget and trip_data.budget:
+                rows.append(["预算总额", f"¥{trip_data.budget.total_budget:.2f}"])
+            if opts.include_highlights and trip_data.trip_highlights:
+                rows.append(["行程亮点", "、".join(str(h) for h in trip_data.trip_highlights[:5])])
+            overview = Table(rows, colWidths=[4.2 * cm, None])
+            overview.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f3f4f6")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ]))
+            story.append(overview)
+            story.append(Spacer(1, 0.5 * cm))
+
+            # ---- 每日行程 ----
+            for day in trip_data.days:
+                weather_text = ""
+                if opts.include_weather and day.weather:
+                    parts = [day.weather.weather_type or ""]
+                    if day.weather.temp_low is not None and day.weather.temp_high is not None:
+                        parts.append(f"{day.weather.temp_low}-{day.weather.temp_high}℃")
+                    weather_text = " ".join(p for p in parts if p)
+                day_header = f"Day {day.day_number} · {day.itinerary_date}"
+                if weather_text:
+                    day_header += f"（{weather_text}）"
+                header_block = [Paragraph(day_header, day_title_style)]
+                if day.day_theme:
+                    header_block.append(Paragraph(f"主题：{self._escape_pdf_text(day.day_theme)}", theme_style))
+                story.append(KeepTogether(header_block))
+
+                for item in day.items:
+                    block: List[Any] = []
+                    place_name = self._escape_pdf_text(item.place.name)
+                    block.append(Paragraph(
+                        f"{item.start_time} - {item.end_time}　{place_name}",
+                        item_title_style,
+                    ))
+                    if item.activity:
+                        block.append(Paragraph(f"活动：{self._escape_pdf_text(item.activity)}", body_style))
+                    if item.place.address:
+                        block.append(Paragraph(f"地址：{self._escape_pdf_text(item.place.address)}", small_style))
+                    for tip in (item.tips or [])[:2]:
+                        block.append(Paragraph(f"贴士：{self._escape_pdf_text(tip)}", tip_style))
+                    image_url = _first_image(item.place.images, item.place.cover_image)
+                    if image_url:
+                        image_flowable = self._pdf_image_flowable(image_url, 10.5 * cm, 6.5 * cm, tmp_dir)
+                        if image_flowable:
+                            block.append(Spacer(1, 0.15 * cm))
+                            block.append(image_flowable)
+                    story.append(KeepTogether(block))
+
+                # 餐饮
+                for meal_type, meal in (("早餐", day.breakfast), ("午餐", day.lunch), ("晚餐", day.dinner)):
+                    if meal is None:
+                        continue
+                    block = []
+                    block.append(Paragraph(f"{meal_type}：{self._escape_pdf_text(meal.name)}", meal_title_style))
+                    if getattr(meal, "address", None):
+                        block.append(Paragraph(f"地址：{self._escape_pdf_text(meal.address)}", small_style))
+                    if getattr(meal, "cuisine_type", None):
+                        block.append(Paragraph(f"菜系：{self._escape_pdf_text(meal.cuisine_type)}", small_style))
+                    if getattr(meal, "avg_price", None):
+                        block.append(Paragraph(f"人均：¥{meal.avg_price:.0f}", small_style))
+                    image_url = _first_image(getattr(meal, "images", None))
+                    if image_url:
+                        image_flowable = self._pdf_image_flowable(image_url, 7.5 * cm, 4.5 * cm, tmp_dir)
+                        if image_flowable:
+                            block.append(Spacer(1, 0.15 * cm))
+                            block.append(image_flowable)
+                    story.append(KeepTogether(block))
+
+                if opts.include_budget:
+                    story.append(Paragraph(f"当日费用：¥{day.daily_cost:.2f}", cost_style))
+                story.append(Spacer(1, 0.4 * cm))
+
+            # ---- 行程贴士 ----
+            if opts.include_tips and trip_data.trip_tips:
+                story.append(Paragraph("行程贴士", section_title_style))
+                if trip_data.trip_tips_grouped:
+                    for group in trip_data.trip_tips_grouped:
+                        story.append(Paragraph(
+                            f"{self._escape_pdf_text(group.icon)} {self._escape_pdf_text(group.category)}",
+                            tips_category_style,
+                        ))
+                        for tip in group.tips:
+                            story.append(Paragraph(f"· {self._escape_pdf_text(tip)}", tip_style))
+                else:
+                    for tip in trip_data.trip_tips:
+                        story.append(Paragraph(f"· {self._escape_pdf_text(tip)}", tip_style))
+
+            # ---- 页脚 ----
+            story.append(Spacer(1, 1.2 * cm))
+            story.append(Paragraph("—— 智旅云图 · 智能行程规划 ——", footer_style))
+            story.append(Paragraph(f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}", footer_style))
+
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=A4,
+                leftMargin=2 * cm,
+                rightMargin=2 * cm,
+                topMargin=2 * cm,
+                bottomMargin=2 * cm,
+                title=f"{trip_data.trip_name} - 智旅云图行程报告",
+                author="智旅云图",
+            )
+            doc.build(
+                story,
+                onFirstPage=self._reportlab_page_callback,
+                onLaterPages=self._reportlab_page_callback,
+            )
+            return buffer.getvalue()
+
+    @staticmethod
+    def _escape_pdf_text(text: Any) -> str:
+        """转义 reportlab Paragraph 中的 XML 特殊字符。"""
+        return str(text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def _trip_cover_image(self, trip_data: TripResponse) -> Optional[str]:
+        """挑选行程中首张可用图片作为封面图。"""
+        for day in trip_data.days:
+            for item in day.items:
+                url = _first_image(item.place.images, item.place.cover_image)
+                if url:
+                    return url
+            for meal in (day.breakfast, day.lunch, day.dinner):
+                if meal:
+                    url = _first_image(getattr(meal, "images", None))
+                    if url:
+                        return url
+        return None
+
+    def _pdf_image_flowable(
+        self,
+        url: str,
+        max_width: float,
+        max_height: float,
+        tmp_dir: str,
+    ) -> Optional[Any]:
+        """
+        下载图片并构造 reportlab Image flowable。
+
+        图片下载 / 解码失败时记录告警并返回 None，不阻塞 PDF 导出。
+        """
+        try:
+            from reportlab.lib.utils import ImageReader
+            from reportlab.platypus import Image
+
+            request = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            )
+            with urllib.request.urlopen(request, timeout=8) as resp:
+                raw = resp.read()
+            reader = ImageReader(io.BytesIO(raw))
+            width, height = reader.getSize()
+            if not width or not height:
+                return None
+            ext = Path(url.lower()).suffix
+            if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+                ext = ".img"
+            image_path = Path(tmp_dir) / f"img_{uuid.uuid4().hex[:8]}{ext}"
+            image_path.write_bytes(raw)
+            scale = min(max_width / width, max_height / height, 1.0)
+            return Image(str(image_path), width=width * scale, height=height * scale)
+        except Exception as e:
+            logger.warning("PDF 图片下载失败，已跳过: %s (%s)", url, e)
+            return None
+
+    def _reportlab_page_callback(self, canvas, doc) -> None:
+        """在每页底部绘制页码。"""
+        from reportlab.lib.units import cm
+
+        canvas.saveState()
+        canvas.setFont("Helvetica", 9)
+        canvas.setFillColorRGB(0.6, 0.6, 0.6)
+        canvas.drawCentredString(doc.pagesize[0] / 2, 1 * cm, f"- {canvas.getPageNumber()} -")
+        canvas.restoreState()
 
     def _get_stylesheet(self) -> str:
         """获取 CSS 样式表"""
@@ -936,11 +1212,29 @@ body {
     margin-top: 4px;
 }
 
+.item-image {
+    display: block;
+    max-width: 70%;
+    max-height: 220px;
+    margin: 8px 0;
+    border-radius: 6px;
+    object-fit: cover;
+}
+
 .meal-section {
     margin: 10px 0;
     padding: 8px;
     background: #fef3c7;
     border-radius: 6px;
+}
+
+.meal-image {
+    display: block;
+    max-width: 60%;
+    max-height: 160px;
+    margin: 6px 0;
+    border-radius: 6px;
+    object-fit: cover;
 }
 
 .meal-type {

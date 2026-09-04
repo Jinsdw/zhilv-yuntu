@@ -206,11 +206,22 @@ class TestExportToPdf:
     """3.6.4 PDF 导出"""
 
     async def test_dependency_missing(self, service, sample_trip):
-        """WeasyPrint 缺失时抛出 ExportError"""
-        with patch.dict(sys.modules, {"weasyprint": None, "weasyprint.html": None, "weasyprint.css": None}):
+        """WeasyPrint 与 reportlab 均缺失时抛出 ExportError"""
+        with patch.dict(
+            sys.modules,
+            {
+                "weasyprint": None,
+                "weasyprint.html": None,
+                "weasyprint.css": None,
+                "reportlab": None,
+                "reportlab.platypus": None,
+                "reportlab.lib": None,
+                "reportlab.pdfbase": None,
+            },
+        ):
             with pytest.raises(ExportError) as exc_info:
                 await service.export_to_pdf(sample_trip)
-            assert "PDF" in str(exc_info.value) or "WeasyPrint" in str(exc_info.value)
+            assert "PDF" in str(exc_info.value) or "reportlab" in str(exc_info.value)
 
     async def test_renders_pdf_bytes(self, service, sample_trip):
         """正常渲染返回 PDF 字节（mock 整个 weasyprint，避免依赖本机 GTK 原生库）"""
@@ -226,6 +237,35 @@ class TestExportToPdf:
             pdf = await service.export_to_pdf(sample_trip)
         assert pdf == b"%PDF-1.4 mock"
         fake_html_class.assert_called_once()
+
+    async def test_reportlab_fallback_without_images(self, service, sample_trip):
+        """WeasyPrint 缺失时降级 reportlab 生成 PDF；图片下载失败自动跳过"""
+        with patch.dict(sys.modules, {"weasyprint": None, "weasyprint.html": None, "weasyprint.css": None}):
+            with patch("urllib.request.urlopen", side_effect=OSError("network blocked")):
+                pdf = await service.export_to_pdf(sample_trip)
+        assert pdf.startswith(b"%PDF")
+        assert len(pdf) > 1000
+
+    async def test_reportlab_embeds_images(self, service, sample_trip):
+        """reportlab 渲染时尝试下载并嵌入行程图片"""
+        import base64
+        from types import ModuleType
+
+        png_bytes = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = png_bytes
+        fake_resp.__enter__.return_value = fake_resp
+        fake_resp.__exit__.return_value = False
+
+        with patch.dict(sys.modules, {"weasyprint": None, "weasyprint.html": None, "weasyprint.css": None}):
+            with patch("urllib.request.urlopen", return_value=fake_resp) as mock_urlopen:
+                pdf = await service.export_to_pdf(sample_trip)
+
+        assert mock_urlopen.called
+        assert pdf.startswith(b"%PDF")
+        assert len(pdf) > 1000
 
 
 class TestFileNaming:
