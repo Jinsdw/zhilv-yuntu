@@ -222,7 +222,10 @@ class StorageService:
                 # 计算总天数
                 total_days = (response.end_date - response.start_date).days + 1
                 
-                # 序列化 JSON 字段（确保 date/datetime 可序列化）
+                # 序列化 JSON 字段（确保 date/datetime 可序列化）；
+                # 若未指定 trip_id，先把生成的 ID 回填到响应，保证落库数据自洽
+                if not response.trip_id:
+                    response = response.model_copy(update={"trip_id": trip_id})
                 request_data = json.loads(json_serialize(request.model_dump()))
                 response_data = json.loads(json_serialize(response.model_dump()))
                 
@@ -320,23 +323,24 @@ class StorageService:
             return None
         
         try:
-            request = TripRequest(**trip_db.request_data)
-            response = TripResponse(**trip_db.response_data)
+            # get_trip 返回 dict（trip_data），不能按 ORM 属性访问
+            request = TripRequest(**trip_db["request_data"])
+            response = TripResponse(**trip_db["response_data"])
             
             return TripHistory(
-                history_id=trip_db.id,
-                user_id=trip_db.user_id,
+                history_id=trip_db["id"],
+                user_id=trip_db["user_id"],
                 request=request,
                 response=response,
-                created_at=trip_db.created_at,
-                accessed_at=trip_db.last_accessed_at or trip_db.created_at,
-                access_count=trip_db.access_count,
-                is_favorite=trip_db.is_favorite,
-                is_shared=trip_db.is_shared,
-                share_code=trip_db.share_code,
-                user_rating=trip_db.user_rating,
-                user_feedback=trip_db.user_feedback,
-                exported_formats=trip_db.exported_formats or [],
+                created_at=trip_db["created_at"],
+                accessed_at=trip_db["last_accessed_at"] or trip_db["created_at"],
+                access_count=trip_db["access_count"],
+                is_favorite=trip_db["is_favorite"],
+                is_shared=trip_db["is_shared"],
+                share_code=trip_db["share_code"],
+                user_rating=trip_db["user_rating"],
+                user_feedback=trip_db["user_feedback"],
+                exported_formats=trip_db["exported_formats"] or [],
             )
         except Exception as e:
             logger.error(f"转换行程数据失败: {e}")

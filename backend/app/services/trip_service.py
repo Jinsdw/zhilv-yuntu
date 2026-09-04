@@ -932,7 +932,7 @@ class TripService:
             new_items.append(item.model_copy(update={"place": new_place}))
 
         new_day = day.model_copy(update={"items": new_items})
-        new_day = self._enrich_day_meals_hotel(new_day, city, amap, warnings)
+        new_day = self._enrich_day_meals_hotel(new_day, city, amap, warnings, photo_cache={})
 
         new_days = list(trip.days)
         new_days[idx] = new_day
