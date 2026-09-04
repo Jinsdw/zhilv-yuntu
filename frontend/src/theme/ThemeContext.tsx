@@ -26,6 +26,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, dark ? 'dark' : 'light')
+    // 同步根节点 data-theme，驱动 global.css 的纸张/暖墨变量
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
   }, [dark])
 
   return (

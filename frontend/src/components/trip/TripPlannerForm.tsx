@@ -1,9 +1,11 @@
 /**
  * 8.3.4 行程规划表单：字段区 + 高级选项折叠 + 提交栏。
+ * v2 山海拾光：分区标题（目的地/日期、人员与偏好、关键词）提升长表单可扫读性。
  * 页面只做组装，本组件承载表单状态与 TripRequest 构造。
  */
 
-import { App as AntdApp, Button, Collapse, Divider, Flex, Form } from 'antd'
+import { RocketOutlined } from '@ant-design/icons'
+import { App as AntdApp, Button, Collapse, Flex, Form, Typography } from 'antd'
 import type { Dayjs } from 'dayjs'
 import type { FormInstance } from 'antd'
 
@@ -48,6 +50,35 @@ export interface TripPlannerFormProps {
   onReset?: () => void
   /** 外部表单实例（Home 用于沉淀城市快捷填入 destination） */
   form?: FormInstance<TripFormValues>
+}
+
+/** 表单分区标题：序号 + 宋体标题 + 说明 */
+function SectionHeader({
+  index,
+  title,
+  subtitle,
+}: {
+  index: string
+  title: string
+  subtitle: string
+}) {
+  return (
+    <Flex align="baseline" gap={10} style={{ marginBottom: 14, marginTop: 4 }}>
+      <Typography.Text
+        strong
+        className="zl-serif"
+        style={{
+          fontSize: 15,
+          color: 'var(--zl-text, #2b2118)',
+        }}
+      >
+        {index} · {title}
+      </Typography.Text>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {subtitle}
+      </Typography.Text>
+    </Flex>
+  )
 }
 
 /** 初始值：与后端 TripRequest 默认值对齐（schemas.py） */
@@ -103,12 +134,21 @@ export default function TripPlannerForm({ busy, onSubmit, onReset, form: externa
       {/* 生成中隐藏表单但保持挂载，失败回退时不丢失用户输入 */}
       <div style={{ display: busy ? 'none' : undefined }}>
         <Form<TripFormValues> form={form} layout="vertical" initialValues={INITIAL_VALUES} onFinish={handleFinish}>
-          <DestinationField />
-          <DateRangeField />
-          <Divider style={{ margin: '4px 0 16px' }} />
+          <SectionHeader index="01" title="去哪儿" subtitle="目的地与日期" />
+          <Flex wrap gap={32} align="flex-start">
+            <div style={{ flex: '1 1 360px', minWidth: 0 }}>
+              <DestinationField />
+            </div>
+            <div style={{ flex: '1 1 360px', minWidth: 0 }}>
+              <DateRangeField />
+            </div>
+          </Flex>
+
+          <SectionHeader index="02" title="和谁去" subtitle="人数、节奏与预算" />
           <PeopleField />
           <StyleField />
-          <Divider style={{ margin: '4px 0 16px' }} />
+
+          <SectionHeader index="03" title="怎么玩" subtitle="偏好与关键词" />
           <KeywordsField />
 
           <Collapse
@@ -123,13 +163,31 @@ export default function TripPlannerForm({ busy, onSubmit, onReset, form: externa
             ]}
           />
 
-          <Flex gap={12}>
-            <Button type="primary" htmlType="submit" size="large" style={{ minWidth: 160 }}>
-              生成行程
+          <Flex
+            gap={12}
+            align="center"
+            wrap
+            style={{
+              marginTop: 12,
+              paddingTop: 20,
+              borderTop: '1px dashed rgba(192,71,47,0.18)',
+            }}
+          >
+            <Button
+              type="primary"
+              htmlType="submit"
+              size="large"
+              icon={<RocketOutlined />}
+              style={{ minWidth: 180, borderRadius: 999 }}
+            >
+              开始生成行程
             </Button>
-            <Button size="large" onClick={handleReset}>
+            <Button size="large" onClick={handleReset} style={{ borderRadius: 999 }}>
               重置
             </Button>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              通常需要 1 至 3 分钟，期间请保持页面打开
+            </Typography.Text>
           </Flex>
         </Form>
       </div>

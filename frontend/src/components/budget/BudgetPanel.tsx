@@ -32,18 +32,40 @@ export default function BudgetPanel({ budget, totalDays }: BudgetPanelProps) {
 
   return (
     <Card
+      className="zl-paper-card"
+      styles={{ body: { padding: 20 } }}
       title={
         <Flex align="center" gap={8}>
-          <CalculatorOutlined />
-          预算
+          <Flex
+            align="center"
+            justify="center"
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 9,
+              background: 'rgba(192,71,47,0.12)',
+              color: '#C0472F',
+            }}
+          >
+            <CalculatorOutlined style={{ fontSize: 14 }} />
+          </Flex>
+          <Typography.Text strong className="zl-serif" style={{ fontSize: 16 }}>
+            预算
+          </Typography.Text>
         </Flex>
       }
       extra={<Tag color={statusMeta.color}>{statusMeta.label}</Tag>}
     >
       <Flex wrap gap={32} align="flex-start">
         <Flex vertical gap={8} style={{ minWidth: 200 }}>
-          <Typography.Text type="secondary">总预算</Typography.Text>
-          <Statistic value={budget.total_budget} prefix="¥" className="num" precision={0} />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>总预算</Typography.Text>
+          <Statistic
+            value={budget.total_budget}
+            prefix="¥"
+            className="num zl-serif"
+            precision={0}
+            valueStyle={{ fontSize: 30, fontWeight: 600 }}
+          />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             人均 {formatMoney(budget.budget_per_person)}
             {totalDays ? ` · 日均 ${formatMoney(budget.daily_avg_budget)}` : ''}

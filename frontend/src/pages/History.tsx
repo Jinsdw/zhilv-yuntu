@@ -1,7 +1,8 @@
 /**
- * 8.3.3 历史页：历史行程列表（分页拉取 TripHistoryListResponse）。
- * 工具条：目的地搜索（防抖）+ 收藏筛选 + 排序；行操作：导出 / 删除（Popconfirm）。
- * 点击历史行 → 携带 trip_id 跳转结果页，结果页通过 GET /trip/{trip_id} 拉取完整详情。
+ * 8.3.3 历史页：历史行程记录（分页拉取 TripHistoryListResponse）。
+ * v2 山海拾光：旅行明信片墙（网格卡片），工具条与批量操作逻辑不变。
+ * 工具条：目的地搜索（防抖）+ 收藏筛选 + 排序；卡片操作：查看 / 导出 / 删除（Popconfirm）。
+ * 点击卡片 → 携带 trip_id 跳转结果页，结果页通过 GET /trip/{trip_id} 拉取完整详情。
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -16,19 +17,17 @@ import {
 } from '@ant-design/icons'
 import {
   App as AntdApp,
-  Avatar,
   Button,
-  Card,
   Checkbox,
+  Col,
   Dropdown,
   Flex,
   Input,
-  List,
   Pagination,
   Popconfirm,
   Radio,
+  Row,
   Select,
-  Skeleton,
   Tag,
   Typography,
 } from 'antd'
@@ -65,6 +64,22 @@ function sortParams(mode: SortMode): Pick<HistoryQueryParams, 'order_by' | 'orde
     case 'access_desc':
       return { order_by: 'access_count', order_desc: true }
   }
+}
+
+/** 目的地首字渐变色（明信片封面用，按目的地取稳定色） */
+function coverGradient(destination: string): string {
+  const palettes = [
+    'linear-gradient(135deg, #C0472F, #E8A33D)',
+    'linear-gradient(135deg, #2F7D7A, #5B6E9C)',
+    'linear-gradient(135deg, #A85C6E, #E8A33D)',
+    'linear-gradient(135deg, #7A5C9E, #2F7D7A)',
+    'linear-gradient(135deg, #B7791F, #C0472F)',
+  ]
+  let hash = 0
+  for (let i = 0; i < destination.length; i += 1) {
+    hash = (hash * 31 + destination.charCodeAt(i)) >>> 0
+  }
+  return palettes[hash % palettes.length]
 }
 
 export default function History() {
@@ -218,17 +233,17 @@ export default function History() {
   const someSelected = selectedIds.size > 0
 
   return (
-    <Flex vertical gap={16}>
+    <Flex vertical gap={20}>
       <Flex vertical gap={4}>
-        <Typography.Title level={2} style={{ marginBottom: 0 }}>
-          历史记录
+        <Typography.Title level={1} className="zl-serif zl-ink" style={{ marginBottom: 0, fontSize: 32 }}>
+          我的旅行手账
         </Typography.Title>
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          已生成的行程会保存在这里，可随时导出或删除。
+          已生成的行程像明信片一样收在这里，可随时回看、导出或删除。
         </Typography.Paragraph>
       </Flex>
 
-      <Card styles={{ body: { padding: 16 } }}>
+      <div className="zl-paper-card" style={{ padding: 16 }}>
         <Flex wrap gap={12} align="center">
           <Checkbox
             checked={allSelected}
@@ -268,7 +283,7 @@ export default function History() {
         </Flex>
 
         {someSelected && (
-          <Flex wrap gap={12} align="center" style={{ marginTop: 16, paddingTop: 12, borderTop: `1px dashed rgba(128,128,128,0.25)` }}>
+          <Flex wrap gap={12} align="center" style={{ marginTop: 16, paddingTop: 12, borderTop: '1px dashed rgba(192,71,47,0.2)' }}>
             <Typography.Text strong style={{ fontSize: 13 }}>
               已选 {selectedIds.size} 条
             </Typography.Text>
@@ -307,106 +322,191 @@ export default function History() {
             </Button>
           </Flex>
         )}
-      </Card>
+      </div>
 
-      <Card styles={{ body: { padding: 16 } }}>
-        <List
-          dataSource={items}
-          loading={loading}
-          locale={{
-            emptyText: total === 0 ? '暂无历史记录' : '没有符合条件的结果',
-          }}
-          renderItem={(item) => (
-            <List.Item
-              onClick={() => openTripDetail(item)}
-              style={{ cursor: 'pointer' }}
-              actions={[
-                <Button
-                  key="view"
-                  type="text"
-                  icon={<EyeOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation()
+      {/* 明信片墙 */}
+      <Row gutter={[20, 20]}>
+        {items.map((item) => {
+          const selected = selectedIds.has(item.id)
+          return (
+            <Col key={item.id} xs={24} sm={12} lg={8}>
+              <div
+                className="zl-paper-card zl-paper-card--hover"
+                role="button"
+                tabIndex={0}
+                onClick={() => openTripDetail(item)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
                     openTripDetail(item)
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  outline: selected ? '2px solid rgba(192,71,47,0.6)' : 'none',
+                  height: '100%',
+                }}
+              >
+                {/* 明信片封面 */}
+                <div
+                  style={{
+                    height: 96,
+                    background: coverGradient(item.destination),
+                    position: 'relative',
+                    padding: 16,
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'space-between',
                   }}
                 >
-                  查看
-                </Button>,
-                <Popconfirm
-                  key="delete"
-                  title="删除这条历史记录？"
-                  description="删除后不可恢复"
-                  okText="删除"
-                  cancelText="取消"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={() => void handleDelete(item.id)}
-                >
-                  <Button
-                    type="text"
-                    danger
-                    icon={<DeleteOutlined />}
-                    loading={deletingId === item.id}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    删除
-                  </Button>
-                </Popconfirm>,
-                <Dropdown key="export" menu={{ items: rowActions, onClick: ({ key, domEvent }) => { domEvent.stopPropagation(); void handleExport(item, key as 'markdown' | 'pdf') } }}>
-                  <Button type="text" icon={<DownloadOutlined />} onClick={(e) => e.stopPropagation()}>
-                    导出
-                  </Button>
-                </Dropdown>,
-              ]}
-            >
-              <Flex gap={12} align="flex-start" style={{ width: '100%' }}>
-                <Checkbox
-                  checked={selectedIds.has(item.id)}
-                  onChange={() => toggleOne(item.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ marginTop: 12 }}
-                />
-                <Avatar shape="square" size={44} style={{ background: 'transparent', border: '1px solid currentColor', color: 'inherit', fontSize: 14 }}>
-                  {item.destination.slice(0, 1)}
-                </Avatar>
-                <Flex vertical gap={4} style={{ flex: 1, minWidth: 0 }}>
-                  <Flex wrap gap={8} align="center">
-                    <Typography.Text strong>{item.destination}</Typography.Text>
+                  <Typography.Text className="zl-serif" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', lineHeight: 1 }}>
+                    {item.destination.slice(0, 1)}
+                  </Typography.Text>
+                  <Flex gap={6}>
                     {item.is_favorite && (
-                      <Tag color="red" icon={<HeartFilled />} style={{ marginInlineEnd: 0 }}>
+                      <Tag color="gold" icon={<HeartFilled />} style={{ marginInlineEnd: 0, borderRadius: 999, border: 'none' }}>
                         收藏
                       </Tag>
                     )}
                     {item.model_used && (
-                      <Tag style={{ marginInlineEnd: 0 }}>{item.model_used}</Tag>
+                      <Tag style={{ marginInlineEnd: 0, borderRadius: 999, background: 'rgba(255,255,255,0.85)', border: 'none' }}>
+                        {item.model_used}
+                      </Tag>
                     )}
                   </Flex>
+                </div>
+
+                {/* 卡片正文 */}
+                <Flex vertical gap={8} style={{ padding: 16, flex: 1 }}>
+                  <Flex justify="space-between" align="flex-start" gap={8}>
+                    <Typography.Text strong style={{ fontSize: 17 }}>
+                      {item.destination}
+                    </Typography.Text>
+                    <Checkbox
+                      checked={selected}
+                      onChange={() => toggleOne(item.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`选择 ${item.destination}`}
+                    />
+                  </Flex>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {formatDateCN(item.start_date)} 至 {formatDateCN(item.end_date)} · {item.total_days} 天
-                    {item.total_budget != null ? ` · 预算 ${formatMoney(item.total_budget)}` : ''}
+                    {formatDateCN(item.start_date)} 至 {formatDateCN(item.end_date)}
                   </Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  <Flex gap={16} style={{ marginTop: 4 }}>
+                    <Flex vertical>
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                        天数
+                      </Typography.Text>
+                      <Typography.Text strong className="num">
+                        {item.total_days} 天
+                      </Typography.Text>
+                    </Flex>
+                    {item.total_budget != null && (
+                      <Flex vertical>
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                          预算
+                        </Typography.Text>
+                        <Typography.Text strong className="num">
+                          {formatMoney(item.total_budget)}
+                        </Typography.Text>
+                      </Flex>
+                    )}
+                  </Flex>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }} ellipsis>
                     生成于 {item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : '—'}
                     {item.access_count > 0 ? ` · 访问 ${item.access_count} 次` : ''}
                   </Typography.Text>
+
+                  <Flex gap={4} justify="flex-end" style={{ marginTop: 'auto', paddingTop: 8 }}>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EyeOutlined />}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openTripDetail(item)
+                      }}
+                    >
+                      查看
+                    </Button>
+                    <Dropdown
+                      menu={{
+                        items: rowActions,
+                        onClick: ({ key, domEvent }) => {
+                          domEvent.stopPropagation()
+                          void handleExport(item, key as 'markdown' | 'pdf')
+                        },
+                      }}
+                    >
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        导出
+                      </Button>
+                    </Dropdown>
+                    <Popconfirm
+                      title="删除这条历史记录？"
+                      description="删除后不可恢复"
+                      okText="删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => void handleDelete(item.id)}
+                    >
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        loading={deletingId === item.id}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  </Flex>
                 </Flex>
-              </Flex>
-            </List.Item>
-          )}
+              </div>
+            </Col>
+          )
+        })}
+      </Row>
+
+      {/* 加载骨架 */}
+      {loading && items.length === 0 && (
+        <Row gutter={[20, 20]}>
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Col key={index} xs={24} sm={12} lg={8}>
+              <div className="zl-paper-card" style={{ height: 260, background: 'var(--zl-card-bg)' }} />
+            </Col>
+          ))}
+        </Row>
+      )}
+
+      {/* 空态 */}
+      {items.length === 0 && !loading && (
+        <div className="zl-paper-card" style={{ padding: 48, textAlign: 'center' }}>
+          <Typography.Text type="secondary">
+            {total === 0 ? '还没有历史行程，去规划页生成一份吧。' : '没有符合条件的结果。'}
+          </Typography.Text>
+        </div>
+      )}
+
+      <Flex justify="flex-end">
+        <Pagination
+          current={page}
+          pageSize={PAGE_SIZE}
+          total={total}
+          showSizeChanger={false}
+          showTotal={(t) => `共 ${t} 条`}
+          onChange={setPage}
         />
-
-        {loading && items.length === 0 && <Skeleton active paragraph={{ rows: 3 }} />}
-
-        <Flex justify="flex-end" style={{ marginTop: 16 }}>
-          <Pagination
-            current={page}
-            pageSize={PAGE_SIZE}
-            total={total}
-            showSizeChanger={false}
-            showTotal={(t) => `共 ${t} 条`}
-            onChange={setPage}
-          />
-        </Flex>
-      </Card>
+      </Flex>
     </Flex>
   )
 }

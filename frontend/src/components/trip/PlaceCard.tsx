@@ -1,5 +1,6 @@
 /**
  * 8.3.5 行程卡片：单个景点/活动的时间区间、图片、评分、交通、费用、提示、预约。
+ * v2 山海拾光：纸张卡片 + 胶囊标签，信息密度不变。
  * 纯展示组件，数据来自 ItineraryItem。
  */
 
@@ -32,15 +33,20 @@ export default function PlaceCard({ item }: PlaceCardProps) {
   const imageUrl = place.cover_image ?? place.images?.[0]
 
   return (
-    <Card size="small" styles={{ body: { padding: 12 } }} style={{ marginBottom: 8, background: token.colorFillTertiary }}>
-      <Flex gap={12} align="flex-start">
+    <Card
+      size="small"
+      className="zl-paper-card zl-paper-card--hover"
+      styles={{ body: { padding: 14 } }}
+      style={{ marginBottom: 10, boxShadow: 'none' }}
+    >
+      <Flex gap={14} align="flex-start">
         {imageUrl ? (
           <Image
             src={imageUrl}
             alt={place.name}
-            width={96}
-            height={72}
-            style={{ objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
+            width={110}
+            height={82}
+            style={{ objectFit: 'cover', borderRadius: 12, flexShrink: 0 }}
             preview={{ mask: false }}
           />
         ) : (
@@ -48,9 +54,9 @@ export default function PlaceCard({ item }: PlaceCardProps) {
             align="center"
             justify="center"
             style={{
-              width: 96,
-              height: 72,
-              borderRadius: 8,
+              width: 110,
+              height: 82,
+              borderRadius: 12,
               flexShrink: 0,
               background: token.colorFillSecondary,
               color: token.colorTextTertiary,
@@ -63,14 +69,14 @@ export default function PlaceCard({ item }: PlaceCardProps) {
 
         <Flex vertical gap={6} style={{ flex: 1, minWidth: 0 }}>
           <Flex wrap gap={6} align="center">
-            <Typography.Text strong>{place.name}</Typography.Text>
+            <Typography.Text strong style={{ fontSize: 15 }}>{place.name}</Typography.Text>
             {place.rating != null && place.review_count > 0 && (
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                {place.rating.toFixed(1)} 分 · {place.review_count} 条点评
+              <Typography.Text style={{ fontSize: 12, color: '#B7791F' }}>
+                ★ {place.rating.toFixed(1)} · {place.review_count} 条点评
               </Typography.Text>
             )}
             {place.tags?.slice(0, 3).map((tag) => (
-              <Tag key={tag} style={{ marginInlineEnd: 0 }}>
+              <Tag key={tag} bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999, background: 'rgba(192,71,47,0.08)' }}>
                 {tag}
               </Tag>
             ))}
@@ -90,29 +96,31 @@ export default function PlaceCard({ item }: PlaceCardProps) {
 
           <Space size={8} wrap>
             {transport && (
-              <Tag color="blue" style={{ marginInlineEnd: 0 }}>
+              <Tag color="blue" bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999 }}>
                 {transportText(transport.transport_type)} {transport.duration} 分钟
                 {transport.cost > 0 ? ` · ${formatMoney(transport.cost)}` : ''}
               </Tag>
             )}
             {place.suggested_duration > 0 && (
-              <Tag style={{ marginInlineEnd: 0 }}>建议 {formatMinutes(place.suggested_duration)}</Tag>
+              <Tag bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999 }}>建议 {formatMinutes(place.suggested_duration)}</Tag>
             )}
             {place.suitable_for_kids && (
-              <Tag color="green" style={{ marginInlineEnd: 0 }}>适合儿童</Tag>
+              <Tag color="green" bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999 }}>适合儿童</Tag>
             )}
             {place.suitable_for_elderly && (
-              <Tag color="gold" style={{ marginInlineEnd: 0 }}>适合老人</Tag>
+              <Tag color="gold" bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999 }}>适合老人</Tag>
             )}
             {place.has_wheelchair && (
-              <Tag color="cyan" style={{ marginInlineEnd: 0 }}>无障碍可达</Tag>
+              <Tag color="cyan" bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999 }}>无障碍可达</Tag>
             )}
             {item.booking_required && (
-              <Tag color="orange" style={{ marginInlineEnd: 0 }}>
+              <Tag color="orange" bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999 }}>
                 需预约
               </Tag>
             )}
-            {item.photo_spot && <Tag style={{ marginInlineEnd: 0 }}>拍照点：{item.photo_spot}</Tag>}
+            {item.photo_spot && (
+              <Tag bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999 }}>拍照点：{item.photo_spot}</Tag>
+            )}
           </Space>
         </Flex>
       </Flex>

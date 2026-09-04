@@ -21,6 +21,7 @@ import type {
   ApiErrorBody,
   CityWeatherResponse,
   HealthCheckResponse,
+  TripBatchResult,
   TripEditRequest,
   TripHistoryListResponse,
   TripRequest,

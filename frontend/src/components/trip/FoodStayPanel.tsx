@@ -37,30 +37,31 @@ function MealCard({ label, meal }: { label: string; meal: RestaurantInfo }) {
   return (
     <Card
       size="small"
-      styles={{ body: { padding: 10 } }}
-      style={{ marginBottom: 0, background: token.colorFillTertiary }}
+      className="zl-paper-card zl-paper-card--hover"
+      styles={{ body: { padding: 12 } }}
+      style={{ marginBottom: 0, boxShadow: 'none' }}
     >
-      <Flex gap={10} align="flex-start">
+      <Flex gap={12} align="flex-start">
         {imageUrl ? (
           <Image
             src={imageUrl}
             alt={meal.name}
-            width={64}
-            height={48}
-            style={{ objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
+            width={72}
+            height={54}
+            style={{ objectFit: 'cover', borderRadius: 10, flexShrink: 0 }}
             preview={{ mask: false }}
           />
         ) : null}
 
         <Flex vertical gap={4} style={{ flex: 1, minWidth: 0 }}>
           <Flex wrap gap={6} align="center">
-            <Tag color={meta.color} style={{ marginInlineEnd: 0 }}>
+            <Tag color={meta.color} bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999 }}>
               {meta.icon} {label}
             </Tag>
             <Typography.Text strong>{meal.name}</Typography.Text>
             {meal.rating != null && (
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                {meal.rating.toFixed(1)} 分
+              <Typography.Text style={{ fontSize: 12, color: '#B7791F' }}>
+                ★ {meal.rating.toFixed(1)}
               </Typography.Text>
             )}
           </Flex>
@@ -74,7 +75,7 @@ function MealCard({ label, meal }: { label: string; meal: RestaurantInfo }) {
           {tags.length > 0 && (
             <Flex wrap gap={4}>
               {tags.slice(0, 4).map((tag) => (
-                <Tag key={tag} style={{ marginInlineEnd: 0, fontSize: 12 }}>
+                <Tag key={tag} bordered={false} style={{ marginInlineEnd: 0, fontSize: 12, borderRadius: 999, background: 'rgba(192,71,47,0.08)' }}>
                   {tag}
                 </Tag>
               ))}
@@ -122,17 +123,18 @@ function HotelCard({ hotel }: { hotel: HotelInfo }) {
   return (
     <Card
       size="small"
-      styles={{ body: { padding: 10 } }}
-      style={{ marginBottom: 0, background: token.colorFillTertiary }}
+      className="zl-paper-card zl-paper-card--hover"
+      styles={{ body: { padding: 12 } }}
+      style={{ marginBottom: 0, boxShadow: 'none' }}
     >
-      <Flex gap={10} align="flex-start">
+      <Flex gap={12} align="flex-start">
         {imageUrl ? (
           <Image
             src={imageUrl}
             alt={hotel.name}
-            width={64}
-            height={48}
-            style={{ objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
+            width={72}
+            height={54}
+            style={{ objectFit: 'cover', borderRadius: 10, flexShrink: 0 }}
             preview={{ mask: false }}
           />
         ) : null}

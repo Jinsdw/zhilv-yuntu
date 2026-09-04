@@ -57,7 +57,7 @@ export default function WeatherPanel({ list, suggestions = [] }: WeatherPanelPro
   const days = list.filter((item) => item.weather)
   if (days.length === 0) {
     return (
-      <Card title="天气">
+      <Card title="天气" className="zl-paper-card" styles={{ body: { padding: 16 } }}>
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无天气数据" />
       </Card>
     )
@@ -67,24 +67,46 @@ export default function WeatherPanel({ list, suggestions = [] }: WeatherPanelPro
 
   return (
     <Card
+      className="zl-paper-card"
+      styles={{ body: { padding: 20 } }}
       title={
         <Flex align="center" gap={8}>
-          <CloudOutlined />
-          天气
+          <Flex
+            align="center"
+            justify="center"
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 9,
+              background: 'rgba(47,125,122,0.14)',
+              color: '#2F7D7A',
+            }}
+          >
+            <CloudOutlined style={{ fontSize: 14 }} />
+          </Flex>
+          <Typography.Text strong className="zl-serif" style={{ fontSize: 16 }}>
+            天气
+          </Typography.Text>
         </Flex>
       }
     >
       <Flex vertical gap={16}>
-        <Flex wrap gap={16}>
+        <Flex wrap gap={12}>
           {days.map(({ date, weather }) => (
-            <Card key={date} size="small" style={{ flex: '1 1 220px' }} styles={{ body: { padding: 12 } }}>
+            <Card
+              key={date}
+              size="small"
+              className="zl-paper-card zl-paper-card--hover"
+              style={{ flex: '1 1 200px', boxShadow: 'none' }}
+              styles={{ body: { padding: 12 } }}
+            >
               <Flex vertical gap={8}>
-                <Typography.Text strong>{formatDateCN(date)}</Typography.Text>
+                <Typography.Text strong style={{ fontSize: 13 }}>{formatDateCN(date)}</Typography.Text>
                 <Flex align="center" gap={8}>
-                  <Tag color={weatherTagColor(weather!.weather_type)} style={{ marginInlineEnd: 0 }}>
+                  <Tag color={weatherTagColor(weather!.weather_type)} bordered={false} style={{ marginInlineEnd: 0, borderRadius: 999 }}>
                     {weather!.weather_type}
                   </Tag>
-                  <Typography.Text className="num">
+                  <Typography.Text strong className="num" style={{ fontSize: 16 }}>
                     {weather!.temp_low}°C ~ {weather!.temp_high}°C
                   </Typography.Text>
                 </Flex>

@@ -21,14 +21,14 @@ import type { ItineraryDay, ItineraryItem } from '@/types'
 
 /** 与后端 map_service.DAY_COLORS 对齐的天配色（第 N 天取第 N 个） */
 export const DAY_COLORS = [
-  '#1890ff', // 蓝
-  '#52c41a', // 绿
-  '#faad14', // 橙
-  '#f5222d', // 红
-  '#722ed1', // 紫
-  '#13c2c2', // 青
-  '#eb2f96', // 粉
-  '#fa8c16', // 深橙
+  '#C0472F', // 陶土橙
+  '#E8A33D', // 日出金
+  '#2F7D7A', // 雾霭青
+  '#7C6A2E', // 橄榄
+  '#A85C6E', // 莓红
+  '#5B6E9C', // 暮蓝
+  '#7A5C9E', // 岩紫
+  '#B7791F', // 深金
 ] as const
 
 /** 地图默认中心（北京；渲染点位后立即自适应视野，仅作首屏兜底） */
@@ -103,7 +103,7 @@ export default function AmapTripMap({
   activeDay = 0,
   focusPlaceId,
   onPlaceClick,
-  brandColor = '#0C7C7E',
+  brandColor = '#C0472F',
 }: AmapTripMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)

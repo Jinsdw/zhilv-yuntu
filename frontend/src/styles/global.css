@@ -1,5 +1,5 @@
-/* 智旅云图全局样式 */
-/* 只放浏览器基准样式，颜色一律走 antd 设计令牌（见 src/theme） */
+/* 智旅云图全局样式（v2 · 山海拾光） */
+/* 浏览器基准 + 纸张纹理 + 衬线标题，颜色一律走 antd 设计令牌（见 src/theme） */
 
 html,
 body,
@@ -15,9 +15,111 @@ body {
     'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--zl-bg-layout, #fbf6ee);
+  transition: background-color 0.3s ease;
 }
 
 /* 数字与金额使用表格数字字形，便于纵向对齐（数据密度约定见 DESIGN.md） */
 .num {
   font-variant-numeric: tabular-nums;
+}
+
+/* 标题衬线栈（与 theme/displayFont 一致）：旅行杂志编辑感 */
+.zl-serif {
+  font-family:
+    'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', STSong, SimSun, serif;
+  letter-spacing: 0.01em;
+}
+
+/* 纸张质感卡片：奶油底 + 细边框 + 柔和投影（明暗自动适配） */
+.zl-paper-card {
+  background: var(--zl-card-bg, #fffdf8);
+  border: 1px solid var(--zl-card-border, rgba(192, 71, 47, 0.14));
+  border-radius: 16px;
+  box-shadow: 0 2px 14px rgba(43, 33, 24, 0.06);
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.zl-paper-card--hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(43, 33, 24, 0.1);
+  border-color: rgba(192, 71, 47, 0.32);
+}
+
+/* 首页 Hero 的暖阳底纹（大面积装饰渐变，不承载文本对比度） */
+.zl-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  background:
+    radial-gradient(1000px 420px at 88% -10%, rgba(232, 163, 61, 0.5), transparent 62%),
+    radial-gradient(760px 360px at -8% 110%, rgba(192, 71, 47, 0.22), transparent 58%),
+    linear-gradient(135deg, rgba(192, 71, 47, 0.08), rgba(232, 163, 61, 0.06)),
+    var(--zl-card-bg, #fffdf8);
+}
+
+/* 暖墨文字（大面积段落标题用，明暗自适应） */
+.zl-ink {
+  color: var(--zl-text, #2b2118);
+}
+
+/* 顶部导航 */
+.zl-topnav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--zl-nav-bg, #fffdf8) 88%, transparent);
+  border-bottom: 1px solid var(--zl-nav-border, rgba(192, 71, 47, 0.12));
+}
+
+/* 入口动画：页面内容淡入上移（尊重 prefers-reduced-motion） */
+@keyframes zl-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.zl-page {
+  animation: zl-rise 0.4s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zl-paper-card,
+  .zl-paper-card--hover,
+  .zl-topnav,
+  body,
+  .zl-page {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* 明暗模式 CSS 变量（由 body[data-theme] 驱动，随 antd 明暗切换） */
+:root,
+:root[data-theme='light'] {
+  --zl-bg-layout: #fbf6ee;
+  --zl-card-bg: #fffdf8;
+  --zl-card-border: rgba(192, 71, 47, 0.14);
+  --zl-text: #2b2118;
+  --zl-nav-bg: #fffdf8;
+  --zl-nav-border: rgba(192, 71, 47, 0.12);
+}
+
+:root[data-theme='dark'] {
+  --zl-bg-layout: #201a14;
+  --zl-card-bg: #2a221a;
+  --zl-card-border: rgba(232, 163, 61, 0.18);
+  --zl-text: #f0e6d6;
+  --zl-nav-bg: #241d16;
+  --zl-nav-border: rgba(232, 163, 61, 0.14);
 }
