@@ -25,12 +25,12 @@ export default function AdvancedCollapse() {
         </Form.Item>
       </Flex>
 
-      <Flex wrap gap={24}>
-        <Form.Item name="include_indoor" label="包含室内景点" valuePropName="checked" style={{ marginBottom: 16 }}>
-          <Checkbox />
+      <Flex wrap gap={24} style={{ marginBottom: 16 }}>
+        <Form.Item name="include_indoor" valuePropName="checked" style={{ marginBottom: 0 }}>
+          <Checkbox>包含室内景点</Checkbox>
         </Form.Item>
-        <Form.Item name="include_outdoor" label="包含室外景点" valuePropName="checked" style={{ marginBottom: 16 }}>
-          <Checkbox />
+        <Form.Item name="include_outdoor" valuePropName="checked" style={{ marginBottom: 0 }}>
+          <Checkbox>包含室外景点</Checkbox>
         </Form.Item>
         <Typography.Text type="secondary" style={{ alignSelf: 'center', fontSize: 12 }}>
           室内/室外类型跟随行程默认建议，可在此手动指定

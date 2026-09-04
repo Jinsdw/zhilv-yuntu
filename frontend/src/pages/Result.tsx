@@ -216,19 +216,19 @@ export default function Result() {
                 行程亮点：
               </Typography.Text>
               {trip.trip_highlights.slice(0, 5).map((hl) => (
-                <Tag key={hl} color="cyan" style={{ marginInlineEnd: 0 }}>
+                <Tag key={hl} color="cyan" style={{ marginInlineEnd: 0, whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: '100%' }}>
                   {hl}
                 </Tag>
               ))}
             </Flex>
           )}
-          {trip.special_needs_notes?.length > 0 && (
+          {trip.special_needs_notes?.length! > 0 && (
             <Flex wrap gap={6} align="center">
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 特殊需求保障：
               </Typography.Text>
-              {trip.special_needs_notes.map((note) => (
-                <Tag key={note} color="orange" style={{ marginInlineEnd: 0 }}>
+              {trip.special_needs_notes!.map((note) => (
+                <Tag key={note} color="orange" style={{ marginInlineEnd: 0, whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: '100%' }}>
                   {note}
                 </Tag>
               ))}
@@ -240,7 +240,7 @@ export default function Result() {
                 推荐美食：
               </Typography.Text>
               {trip.recommended_foods.slice(0, 6).map((food) => (
-                <Tag key={food} color="gold" style={{ marginInlineEnd: 0 }}>
+                <Tag key={food} color="gold" style={{ marginInlineEnd: 0, whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: '100%' }}>
                   {food}
                 </Tag>
               ))}
