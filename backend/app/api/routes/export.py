@@ -15,6 +15,7 @@
 """
 
 import re
+from urllib.parse import quote
 
 from fastapi import APIRouter, Path, Response
 
@@ -39,6 +40,12 @@ def _safe_filename(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', '_', name)
 
 
+def _content_disposition(filename: str) -> str:
+    """生成 Content-Disposition 头，支持中文文件名（RFC 5987）。"""
+    ascii_name = filename.encode("ascii", errors="replace").decode("ascii") or "export"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+
+
 @router.get("/markdown/{trip_id}")
 async def export_markdown(trip_id: str = Path(..., description="行程ID")) -> Response:
     """导出行程为 Markdown 文档。"""
@@ -52,7 +59,7 @@ async def export_markdown(trip_id: str = Path(..., description="行程ID")) -> R
         content=markdown_content.encode("utf-8"),
         media_type="text/markdown; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": _content_disposition(filename)
         }
     )
 
@@ -70,6 +77,7 @@ async def export_pdf(trip_id: str = Path(..., description="行程ID")) -> Respon
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": _content_disposition(filename)
         }
     )
+

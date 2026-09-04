@@ -5,7 +5,7 @@
 """
 
 import pytest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from app.services.storage_service import (
     StorageService,
     DatabaseError,
@@ -29,23 +29,25 @@ class TestStorageService:
 
     @pytest.fixture
     def sample_request(self):
-        """创建示例请求"""
+        """创建示例请求（日期相对今天动态生成，避免过期被校验拒绝）"""
+        start = date.today() + timedelta(days=14)
         return TripRequest(
             destination="北京",
-            start_date=date(2026, 8, 20),
-            end_date=date(2026, 8, 25),
+            start_date=start,
+            end_date=start + timedelta(days=5),
             travelers=2,
         )
 
     @pytest.fixture
     def sample_response(self):
-        """创建示例响应"""
+        """创建示例响应（日期与 sample_request 保持一致）"""
+        start = date.today() + timedelta(days=14)
         return TripResponse(
             trip_id="TEST-001",
             destination="北京",
             trip_name="北京5日游",
-            start_date=date(2026, 8, 20),
-            end_date=date(2026, 8, 25),
+            start_date=start,
+            end_date=start + timedelta(days=5),
             total_days=5,
             budget=BudgetInfo(
                 total_budget=5000,

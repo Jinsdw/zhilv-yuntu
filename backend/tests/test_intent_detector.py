@@ -100,20 +100,17 @@ def test_intent_detector():
         }.get(intent, intent)
         print(f"  - {intent_name}: {count} 条")
 
-    return results
+    return None
 
 
-def test_single_query(query: str):
-    """测试单个查询"""
+def test_single_query():
+    """测试单条查询的意图识别结果（使用关键词命中，不依赖 LLM 网络）"""
     detector = IntentDetector()
 
-    print(f"\n查询: {query}")
-    result = detector.detect(query)
-
-    print(f"\n识别结果:")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
-
-    return result
+    result = detector.detect("帮我规划一个五日游行程")
+    assert result is not None
+    assert "primary_intent" in result
+    assert result["primary_intent"] == "itinerary"
 
 
 if __name__ == "__main__":

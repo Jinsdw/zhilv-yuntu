@@ -4,16 +4,16 @@ RAG 评估器单元测试
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from backend.eval.evaluator import (
+from eval.evaluator import (
     RAGEvaluator,
     EvaluationCase,
     EvaluationLevel,
     RetrievalResult,
     EvaluationReport,
 )
-from backend.eval.metrics.retrieval_metrics import RetrievalMetrics
-from backend.eval.metrics.latency_metrics import LatencyMetrics
-from backend.eval.metrics.quality_metrics import QualityMetrics
+from eval.metrics.retrieval_metrics import RetrievalMetrics
+from eval.metrics.latency_metrics import LatencyMetrics
+from eval.metrics.quality_metrics import QualityMetrics
 
 
 class TestRetrievalMetrics:
@@ -67,8 +67,8 @@ class TestRetrievalMetrics:
         relevant = ["doc1", "doc2", "doc3"]
 
         ap = RetrievalMetrics.average_precision(retrieved, relevant)
-        # AP = (1/1 + 2/3 + 3/4) / 3 = 0.69
-        assert 0.6 < ap < 0.8
+        # 三个相关文档分别位于第 1/2/3 位：AP = (1/1 + 2/2 + 3/3) / 3 = 1.0
+        assert ap == 1.0
 
 
 class TestLatencyMetrics:
@@ -131,8 +131,8 @@ class TestQualityMetrics:
         expected = ["北京", "大理", "成都", "厦门"]
 
         accuracy = QualityMetrics.city_accuracy(detected, expected)
-        # 只统计有 expected 的情况 (3个)
-        assert accuracy == 2/3
+        # 4 组均有期望城市，匹配 2 组（北京、大理）
+        assert accuracy == 0.5
 
     def test_pass_rate(self):
         """测试通过率"""
@@ -245,7 +245,8 @@ class TestRAGEvaluator:
 
         keywords = ["北京", "天安门"]
         recall = evaluator._keyword_recall_at_k(docs, keywords, 3)
-        assert recall == 1.0  # 第一个文档包含关键词
+        # 文档级召回：3 篇文档中仅第 1 篇包含关键词
+        assert recall == pytest.approx(1 / 3, rel=1e-2)
 
     def test_is_case_passed_intent(self):
         """测试用例通过判断 - 意图"""
@@ -322,3 +323,5 @@ class TestEvaluationLevel:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
