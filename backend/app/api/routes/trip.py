@@ -19,7 +19,9 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Depends, Path, Query
+
+from app.api.deps import get_device_id_optional, require_device_id
 
 from app.models.schemas import (
     TripBatchDeleteRequest,
@@ -38,26 +40,32 @@ router = APIRouter()
 @router.post("/generate", response_model=TripResponse, status_code=200)
 def generate_trip(
     request: TripRequest,
+    device_id: Optional[str] = Depends(get_device_id_optional),
     user_id: Optional[str] = Query(None, description="可选用户ID"),
 ) -> TripResponse:
     """生成行程（同步阻塞，走线程池；已持久化并回填 trip_id）。"""
-    return trip_service.generate_trip(request, user_id=user_id)
+    # 设备指纹标识优先，兼容旧客户端通过 query 传 user_id
+    return trip_service.generate_trip(request, user_id=device_id or user_id)
 
 
 @router.post("/edit", response_model=TripResponse, status_code=200)
-def edit_trip(body: TripEditRequest) -> TripResponse:
+def edit_trip(
+    body: TripEditRequest,
+    device_id: str = Depends(require_device_id),
+) -> TripResponse:
     """编辑行程指定天。行程不存在时由全局处理器返回 404。"""
     return trip_service.edit_trip_day(
         body.trip_id,
         body.day_number,
         body.instruction,
+        user_id=device_id,
         context=body.context,
     )
 
 
 @router.get("/history", response_model=TripHistoryListResponse, status_code=200)
 def list_history(
-    user_id: Optional[str] = Query(None, description="按用户ID筛选"),
+    device_id: str = Depends(require_device_id),
     destination: Optional[str] = Query(None, description="按目的地筛选"),
     is_favorite: Optional[bool] = Query(None, description="按收藏状态筛选"),
     limit: int = Query(20, ge=1, le=100, description="每页数量"),
@@ -67,7 +75,7 @@ def list_history(
 ) -> TripHistoryListResponse:
     """行程历史（分页摘要，不含每日明细）。"""
     items, total = trip_service.list_trips(
-        user_id=user_id,
+        user_id=device_id,
         destination=destination,
         is_favorite=is_favorite,
         limit=limit,
@@ -81,27 +89,30 @@ def list_history(
 @router.post("/history/batch-delete", response_model=TripBatchResult, status_code=200)
 def batch_delete_trips(
     body: TripBatchDeleteRequest,
+    device_id: str = Depends(require_device_id),
 ) -> TripBatchResult:
     """批量删除行程历史记录。"""
-    affected = trip_service.delete_trips(body.trip_ids)
+    affected = trip_service.delete_trips(body.trip_ids, user_id=device_id)
     return TripBatchResult(affected=affected, total=len(body.trip_ids))
 
 
 @router.post("/history/batch-favorite", response_model=TripBatchResult, status_code=200)
 def batch_favorite_trips(
     body: TripBatchFavoriteRequest,
+    device_id: str = Depends(require_device_id),
 ) -> TripBatchResult:
     """批量收藏 / 取消收藏行程历史记录。"""
-    affected = trip_service.set_favorites(body.trip_ids, body.is_favorite)
+    affected = trip_service.set_favorites(body.trip_ids, body.is_favorite, user_id=device_id)
     return TripBatchResult(affected=affected, total=len(body.trip_ids))
 
 
 @router.get("/{trip_id}", response_model=TripResponse, status_code=200)
 def get_trip_detail(
     trip_id: str = Path(..., description="行程ID"),
+    device_id: str = Depends(require_device_id),
 ) -> TripResponse:
     """获取行程详情（完整 TripResponse，供历史记录点击回看）。"""
-    history = trip_service.get_trip(trip_id)
+    history = trip_service.get_trip(trip_id, user_id=device_id)
     if not history:
         raise TripNotFoundError(f"行程不存在: {trip_id}")
     return history.response
@@ -110,9 +121,10 @@ def get_trip_detail(
 @router.delete("/history/{trip_id}", status_code=204)
 def delete_trip(
     trip_id: str = Path(..., description="行程ID"),
+    device_id: str = Depends(require_device_id),
 ) -> None:
     """删除行程。不存在时抛 TripNotFoundError → 全局处理器返回 404。"""
-    ok = trip_service.delete_trip(trip_id)
+    ok = trip_service.delete_trip(trip_id, user_id=device_id)
     if not ok:
         raise TripNotFoundError(f"行程不存在: {trip_id}")
     return None

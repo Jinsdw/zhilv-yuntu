@@ -285,21 +285,23 @@ class StorageService:
             logger.error(f"创建行程记录失败: {e}")
             raise DatabaseError(f"创建行程记录失败: {e}")
     
-    def get_trip(self, trip_id: str) -> Optional[Dict[str, Any]]:
+    def get_trip(self, trip_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         获取行程记录
         
         Args:
             trip_id: 行程ID
+            user_id: 归属用户ID（可选；提供时仅返回属于该用户的记录）
             
         Returns:
             行程数据字典或None
         """
         try:
             with self.get_session_direct() as session:
-                trip = session.query(TripHistoryDB).filter(
-                    TripHistoryDB.id == trip_id
-                ).first()
+                query = session.query(TripHistoryDB).filter(TripHistoryDB.id == trip_id)
+                if user_id:
+                    query = query.filter(TripHistoryDB.user_id == user_id)
+                trip = query.first()
                 
                 if not trip:
                     return None
@@ -339,17 +341,18 @@ class StorageService:
             logger.error(f"获取行程记录失败: {e}")
             raise DatabaseError(f"获取行程记录失败: {e}")
     
-    def get_trip_as_history(self, trip_id: str) -> Optional[TripHistory]:
+    def get_trip_as_history(self, trip_id: str, user_id: Optional[str] = None) -> Optional[TripHistory]:
         """
         获取行程历史记录（Pydantic格式）
         
         Args:
             trip_id: 行程ID
+            user_id: 归属用户ID（可选；提供时仅返回属于该用户的记录）
             
         Returns:
             TripHistory 或 None
         """
-        trip_db = self.get_trip(trip_id)
+        trip_db = self.get_trip(trip_id, user_id=user_id)
         if not trip_db:
             return None
         
@@ -377,12 +380,13 @@ class StorageService:
             logger.error(f"转换行程数据失败: {e}")
             return None
     
-    def update_trip(self, trip_id: str, **updates) -> bool:
+    def update_trip(self, trip_id: str, user_id: Optional[str] = None, **updates) -> bool:
         """
         更新行程记录
         
         Args:
             trip_id: 行程ID
+            user_id: 归属用户ID（可选；提供时仅允许更新属于该用户的记录）
             **updates: 要更新的字段
             
         Returns:
@@ -390,9 +394,10 @@ class StorageService:
         """
         try:
             with self.get_session() as session:
-                trip = session.query(TripHistoryDB).filter(
-                    TripHistoryDB.id == trip_id
-                ).first()
+                query = session.query(TripHistoryDB).filter(TripHistoryDB.id == trip_id)
+                if user_id:
+                    query = query.filter(TripHistoryDB.user_id == user_id)
+                trip = query.first()
                 
                 if not trip:
                     return False
@@ -416,21 +421,23 @@ class StorageService:
             logger.error(f"更新行程记录失败: {e}")
             raise DatabaseError(f"更新行程记录失败: {e}")
     
-    def delete_trip(self, trip_id: str) -> bool:
+    def delete_trip(self, trip_id: str, user_id: Optional[str] = None) -> bool:
         """
         删除行程记录
         
         Args:
             trip_id: 行程ID
+            user_id: 归属用户ID（可选；提供时仅删除属于该用户的记录）
             
         Returns:
             是否删除成功
         """
         try:
             with self.get_session() as session:
-                result = session.query(TripHistoryDB).filter(
-                    TripHistoryDB.id == trip_id
-                ).delete()
+                query = session.query(TripHistoryDB).filter(TripHistoryDB.id == trip_id)
+                if user_id:
+                    query = query.filter(TripHistoryDB.user_id == user_id)
+                result = query.delete()
                 session.commit()
                 return result > 0
                 
@@ -438,12 +445,13 @@ class StorageService:
             logger.error(f"删除行程记录失败: {e}")
             raise DatabaseError(f"删除行程记录失败: {e}")
 
-    def delete_trips(self, trip_ids: List[str]) -> int:
+    def delete_trips(self, trip_ids: List[str], user_id: Optional[str] = None) -> int:
         """
         批量删除行程记录
         
         Args:
             trip_ids: 行程ID列表
+            user_id: 归属用户ID（可选；提供时仅删除属于该用户的记录）
             
         Returns:
             删除的记录数
@@ -452,9 +460,10 @@ class StorageService:
             return 0
         try:
             with self.get_session() as session:
-                result = session.query(TripHistoryDB).filter(
-                    TripHistoryDB.id.in_(trip_ids)
-                ).delete(synchronize_session=False)
+                query = session.query(TripHistoryDB).filter(TripHistoryDB.id.in_(trip_ids))
+                if user_id:
+                    query = query.filter(TripHistoryDB.user_id == user_id)
+                result = query.delete(synchronize_session=False)
                 session.commit()
                 return result
                 
@@ -462,13 +471,14 @@ class StorageService:
             logger.error(f"批量删除行程记录失败: {e}")
             raise DatabaseError(f"批量删除行程记录失败: {e}")
 
-    def set_favorites(self, trip_ids: List[str], is_favorite: bool) -> int:
+    def set_favorites(self, trip_ids: List[str], is_favorite: bool, user_id: Optional[str] = None) -> int:
         """
         批量设置收藏状态
         
         Args:
             trip_ids: 行程ID列表
             is_favorite: 是否收藏
+            user_id: 归属用户ID（可选；提供时仅更新属于该用户的记录）
             
         Returns:
             更新的记录数
@@ -477,9 +487,10 @@ class StorageService:
             return 0
         try:
             with self.get_session() as session:
-                result = session.query(TripHistoryDB).filter(
-                    TripHistoryDB.id.in_(trip_ids)
-                ).update(
+                query = session.query(TripHistoryDB).filter(TripHistoryDB.id.in_(trip_ids))
+                if user_id:
+                    query = query.filter(TripHistoryDB.user_id == user_id)
+                result = query.update(
                     {"is_favorite": is_favorite, "updated_at": datetime.now()},
                     synchronize_session=False,
                 )

@@ -849,7 +849,7 @@ class TripService:
             编辑后的 TripResponse（即使失败也不抛异常）
         """
         # 1. 读库
-        history = self._storage.get_trip_as_history(trip_id)
+        history = self._storage.get_trip_as_history(trip_id, user_id=user_id)
         if history is None:
             raise TripNotFoundError(f"行程不存在: {trip_id}")
 
@@ -890,6 +890,7 @@ class TripService:
         try:
             self._storage.update_trip(
                 trip_id,
+                user_id=user_id,
                 response_data=json.loads(
                     json.dumps(edited.model_dump(mode="json"), default=str)
                 ),
@@ -942,9 +943,9 @@ class TripService:
     # 行程 CRUD（薄包装 storage_service，供 Phase 7 API 直接调用）
     # ================================================================
 
-    def get_trip(self, trip_id: str):
+    def get_trip(self, trip_id: str, user_id: Optional[str] = None):
         """获取行程历史详情。"""
-        return self._storage.get_trip_as_history(trip_id)
+        return self._storage.get_trip_as_history(trip_id, user_id=user_id)
 
     def list_trips(
         self,
@@ -967,17 +968,17 @@ class TripService:
             order_desc=order_desc,
         )
 
-    def delete_trip(self, trip_id: str) -> bool:
+    def delete_trip(self, trip_id: str, user_id: Optional[str] = None) -> bool:
         """删除行程。"""
-        return self._storage.delete_trip(trip_id)
+        return self._storage.delete_trip(trip_id, user_id=user_id)
 
-    def delete_trips(self, trip_ids: List[str]) -> int:
+    def delete_trips(self, trip_ids: List[str], user_id: Optional[str] = None) -> int:
         """批量删除行程，返回实际删除数量。"""
-        return self._storage.delete_trips(trip_ids)
+        return self._storage.delete_trips(trip_ids, user_id=user_id)
 
-    def set_favorites(self, trip_ids: List[str], is_favorite: bool) -> int:
+    def set_favorites(self, trip_ids: List[str], is_favorite: bool, user_id: Optional[str] = None) -> int:
         """批量设置收藏状态，返回实际更新数量。"""
-        return self._storage.set_favorites(trip_ids, is_favorite)
+        return self._storage.set_favorites(trip_ids, is_favorite, user_id=user_id)
 
     # ================================================================
     # 辅助

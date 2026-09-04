@@ -17,6 +17,8 @@
 import axios, { AxiosError } from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 
+import { getDeviceId } from '@/utils/deviceFingerprint'
+
 import type {
   ApiErrorBody,
   CityWeatherResponse,
@@ -117,8 +119,21 @@ const http = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// 请求拦截器：预留扩展点（如后续接入用户态鉴权时在此附加 header）
-http.interceptors.request.use((config) => config)
+// 请求拦截器：统一附加浏览器设备指纹 header（X-Device-Id）。
+// 项目无登录体系，后端以该标识做历史记录的数据隔离与归属校验。
+// 拦截器支持 async（axios 内部为 promise 链），指纹计算失败时静默跳过，
+// 由后端对需要设备标识的接口返回明确错误。
+http.interceptors.request.use(async (config) => {
+  try {
+    const deviceId = await getDeviceId()
+    if (deviceId) {
+      config.headers.set('X-Device-Id', deviceId)
+    }
+  } catch {
+    // 指纹不可用（如极端隐私环境）：不附加 header，后端会返回 DEVICE_ID_REQUIRED
+  }
+  return config
+})
 
 http.interceptors.response.use(
   (response) => {

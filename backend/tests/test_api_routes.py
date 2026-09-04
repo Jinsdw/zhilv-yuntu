@@ -28,6 +28,8 @@ from app.models.schemas import (
 )
 from app.services.trip_service import TripNotFoundError
 
+DEVICE_ID = "dev-test-client"
+
 
 def _sample_trip() -> TripResponse:
     """构造最小完整 TripResponse"""
@@ -86,6 +88,18 @@ def _future_trip_request() -> Dict[str, Any]:
 @pytest.fixture
 def client():
     """创建 TestClient，并隔离数据库初始化副作用"""
+    from app.api.main import app
+
+    with patch("app.api.main.storage_service.init_database", return_value=True), \
+         patch("app.api.main.storage_service.health_check", return_value={"database": "connected"}):
+        # 默认携带设备标识头：模拟浏览器指纹隔离下的正常请求
+        with TestClient(app, headers={"X-Device-Id": DEVICE_ID}) as c:
+            yield c
+
+
+@pytest.fixture
+def client_no_device():
+    """不带设备标识的客户端，用于验证缺失 X-Device-Id 时返回 400。"""
     from app.api.main import app
 
     with patch("app.api.main.storage_service.init_database", return_value=True), \
@@ -151,10 +165,12 @@ class TestTripApi:
         """POST /trip/edit 编辑行程"""
         mock_trip = _sample_trip()
         payload = {"trip_id": "TRP-API-001", "day_number": 1, "instruction": "把故宫放到下午"}
-        with patch("app.api.routes.trip.trip_service.edit_trip_day", return_value=mock_trip):
+        with patch("app.api.routes.trip.trip_service.edit_trip_day", return_value=mock_trip) as mock_edit:
             resp = client.post("/trip/edit", json=payload)
         assert resp.status_code == 200
         assert resp.json()["trip_id"] == "TRP-API-001"
+        mock_edit.assert_called_once()
+        assert mock_edit.call_args.kwargs["user_id"] == DEVICE_ID
 
     def test_edit_trip_not_found(self, client):
         """行程不存在 → 404"""
@@ -180,12 +196,20 @@ class TestTripApi:
                 updated_at=datetime(2026, 9, 1, 10, 0),
             )
         ]
-        with patch("app.api.routes.trip.trip_service.list_trips", return_value=(items, 1)):
+        with patch("app.api.routes.trip.trip_service.list_trips", return_value=(items, 1)) as mock_list:
             resp = client.get("/trip/history", params={"limit": 20, "offset": 0})
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 1
         assert body["items"][0]["destination"] == "北京"
+        mock_list.assert_called_once()
+        assert mock_list.call_args.kwargs["user_id"] == DEVICE_ID
+
+    def test_list_history_missing_device_id(self, client_no_device):
+        """GET /trip/history 缺失设备标识 → 400"""
+        resp = client_no_device.get("/trip/history", params={"limit": 20, "offset": 0})
+        assert resp.status_code == 400
+        assert resp.json()["error_code"] == "HTTP_ERROR"
 
     def test_get_trip_detail_success(self, client):
         """GET /trip/{trip_id} 返回完整行程详情"""
@@ -194,13 +218,14 @@ class TestTripApi:
             request=TripRequest(**_future_trip_request()),
             response=_sample_trip(),
         )
-        with patch("app.api.routes.trip.trip_service.get_trip", return_value=history):
+        with patch("app.api.routes.trip.trip_service.get_trip", return_value=history) as mock_get:
             resp = client.get("/trip/TRP-API-001")
         assert resp.status_code == 200
         body = resp.json()
         assert body["trip_id"] == "TRP-API-001"
         assert body["destination"] == "北京"
         assert len(body["days"]) == 1
+        mock_get.assert_called_once_with("TRP-API-001", user_id=DEVICE_ID)
 
     def test_get_trip_detail_not_found(self, client):
         """行程不存在 → 404"""
@@ -211,15 +236,17 @@ class TestTripApi:
 
     def test_delete_trip_success(self, client):
         """DELETE /trip/history/{id} → 204"""
-        with patch("app.api.routes.trip.trip_service.delete_trip", return_value=True):
+        with patch("app.api.routes.trip.trip_service.delete_trip", return_value=True) as mock_del:
             resp = client.delete("/trip/history/TRP-API-001")
         assert resp.status_code == 204
+        mock_del.assert_called_once_with("TRP-API-001", user_id=DEVICE_ID)
 
     def test_delete_trip_not_found(self, client):
         """删除不存在的行程 → 404"""
-        with patch("app.api.routes.trip.trip_service.delete_trip", return_value=False):
+        with patch("app.api.routes.trip.trip_service.delete_trip", return_value=False) as mock_del:
             resp = client.delete("/trip/history/TRP-API-001")
         assert resp.status_code == 404
+        mock_del.assert_called_once_with("TRP-API-001", user_id=DEVICE_ID)
 
     def test_batch_delete_trips_success(self, client):
         """POST /trip/history/batch-delete 批量删除"""
@@ -232,7 +259,7 @@ class TestTripApi:
         body = resp.json()
         assert body["affected"] == 2
         assert body["total"] == 2
-        mock_del.assert_called_once_with(["TRP-API-001", "TRP-API-002"])
+        mock_del.assert_called_once_with(["TRP-API-001", "TRP-API-002"], user_id=DEVICE_ID)
 
     def test_batch_delete_trips_empty_ids(self, client):
         """批量删除空 ID 列表 → 422"""
@@ -253,6 +280,7 @@ class TestTripApi:
         mock_fav.assert_called_once_with(
             ["TRP-API-001", "TRP-API-002", "TRP-API-003"],
             True,
+            user_id=DEVICE_ID,
         )
 
     def test_batch_favorite_trips_empty_ids(self, client):

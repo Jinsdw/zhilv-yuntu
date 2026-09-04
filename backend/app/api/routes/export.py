@@ -17,7 +17,9 @@
 import re
 from urllib.parse import quote
 
-from fastapi import APIRouter, Path, Response
+from fastapi import APIRouter, Depends, Path, Response
+
+from app.api.deps import require_device_id
 
 from app.models.schemas import TripResponse
 from app.services.export_service import ExportOptions, export_service
@@ -27,9 +29,9 @@ from app.services.trip_service import TripNotFoundError
 router = APIRouter()
 
 
-def _get_trip_response(trip_id: str) -> TripResponse:
+def _get_trip_response(trip_id: str, user_id: str) -> TripResponse:
     """从存储层读取行程并转换为 TripResponse。"""
-    trip_dict = storage_service.get_trip(trip_id)
+    trip_dict = storage_service.get_trip(trip_id, user_id=user_id)
     if not trip_dict:
         raise TripNotFoundError(trip_id)
     return TripResponse(**trip_dict["response_data"])
@@ -47,9 +49,12 @@ def _content_disposition(filename: str) -> str:
 
 
 @router.get("/markdown/{trip_id}")
-async def export_markdown(trip_id: str = Path(..., description="行程ID")) -> Response:
+async def export_markdown(
+    trip_id: str = Path(..., description="行程ID"),
+    device_id: str = Depends(require_device_id),
+) -> Response:
     """导出行程为 Markdown 文档。"""
-    trip_data = _get_trip_response(trip_id)
+    trip_data = _get_trip_response(trip_id, user_id=device_id)
     options = ExportOptions()
     markdown_content = await export_service.export_to_markdown(trip_data, options)
 
@@ -65,9 +70,12 @@ async def export_markdown(trip_id: str = Path(..., description="行程ID")) -> R
 
 
 @router.get("/pdf/{trip_id}")
-async def export_pdf(trip_id: str = Path(..., description="行程ID")) -> Response:
+async def export_pdf(
+    trip_id: str = Path(..., description="行程ID"),
+    device_id: str = Depends(require_device_id),
+) -> Response:
     """导出行程为 PDF 文档。"""
-    trip_data = _get_trip_response(trip_id)
+    trip_data = _get_trip_response(trip_id, user_id=device_id)
     options = ExportOptions()
     pdf_bytes = await export_service.export_to_pdf(trip_data, options)
 
@@ -80,4 +88,3 @@ async def export_pdf(trip_id: str = Path(..., description="行程ID")) -> Respon
             "Content-Disposition": _content_disposition(filename)
         }
     )
-

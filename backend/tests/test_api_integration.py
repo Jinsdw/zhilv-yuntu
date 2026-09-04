@@ -217,7 +217,8 @@ def app_env(tmp_path):
     for p in patches:
         p.start()
     try:
-        with TestClient(app) as client:
+        # 默认携带设备标识头：模拟浏览器指纹隔离下的正常请求
+        with TestClient(app, headers={"X-Device-Id": "dev-integration-client"}) as client:
             yield client, agent, temp_storage
     finally:
         for p in reversed(patches):
@@ -487,6 +488,90 @@ class TestTripApiIntegration:
         resp = client.delete(f"/trip/history/{trip_id}")
         assert resp.status_code == 404
         assert resp.json()["error_code"] == "TRIP_NOT_FOUND"
+
+    def test_delete_trip_cross_device_404(self, app_env):
+        """其他设备删除他人行程 → 404（归属校验不泄露存在性）"""
+        client, _, temp_storage = app_env
+        trip_id = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
+
+        resp = client.delete(f"/trip/history/{trip_id}", headers={"X-Device-Id": "dev-other"})
+        assert resp.status_code == 404
+        # 原记录仍在
+        assert temp_storage.get_trip_as_history(trip_id) is not None
+
+
+# ============================================================================
+# 浏览器指纹数据隔离（无登录场景）
+# ============================================================================
+
+class TestDeviceIsolationApi:
+    """浏览器指纹数据隔离"""
+
+    def test_history_only_returns_own_device(self, app_env):
+        """设备 A 生成行程，设备 B 的历史列表不可见"""
+        client, _, _ = app_env
+        client.post("/trip/generate", json=_future_trip_request(destination="北京"))
+
+        own = client.get("/trip/history").json()
+        assert own["total"] == 1
+
+        other = client.get("/trip/history", headers={"X-Device-Id": "dev-other"}).json()
+        assert other["total"] == 0
+        assert other["items"] == []
+
+    def test_detail_cross_device_404(self, app_env):
+        """设备 A 的行程，设备 B 读取详情 → 404"""
+        client, _, _ = app_env
+        trip_id = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
+
+        resp = client.get(f"/trip/{trip_id}", headers={"X-Device-Id": "dev-other"})
+        assert resp.status_code == 404
+
+    def test_batch_ops_only_affect_own_device(self, app_env):
+        """批量删除/收藏仅影响本设备记录"""
+        client, _, temp_storage = app_env
+        id1 = client.post("/trip/generate", json=_future_trip_request(destination="北京")).json()["trip_id"]
+        id2 = client.post("/trip/generate", json=_future_trip_request(destination="上海")).json()["trip_id"]
+
+        # 设备 B 尝试批量删除设备 A 的记录 → affected=0
+        resp = client.post(
+            "/trip/history/batch-delete",
+            json={"trip_ids": [id1, id2]},
+            headers={"X-Device-Id": "dev-other"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["affected"] == 0
+        assert temp_storage.get_trip_as_history(id1) is not None
+
+        # 设备 B 尝试收藏设备 A 的记录 → affected=0
+        resp = client.post(
+            "/trip/history/batch-favorite",
+            json={"trip_ids": [id1], "is_favorite": True},
+            headers={"X-Device-Id": "dev-other"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["affected"] == 0
+
+        # 设备 A 自己批量删除 → affected=2
+        resp = client.post("/trip/history/batch-delete", json={"trip_ids": [id1, id2]})
+        assert resp.status_code == 200
+        assert resp.json()["affected"] == 2
+
+    def test_export_cross_device_404(self, app_env):
+        """设备 A 的行程，设备 B 导出 → 404"""
+        client, _, _ = app_env
+        trip_id = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
+
+        resp = client.get(f"/export/markdown/{trip_id}", headers={"X-Device-Id": "dev-other"})
+        assert resp.status_code == 404
+
+    def test_generate_persists_device_id(self, app_env):
+        """生成行程时持久化设备标识为 user_id"""
+        client, _, temp_storage = app_env
+        trip_id = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
+        trip = temp_storage.get_trip_as_history(trip_id)
+        assert trip is not None
+        assert trip.user_id == "dev-integration-client"
 
 
 # ============================================================================

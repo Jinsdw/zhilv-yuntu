@@ -935,7 +935,7 @@ class TestCRUDWrappers:
         storage.get_trip_as_history.return_value = "history-obj"
         svc = _build_service(storage=storage)
         assert svc.get_trip("trip-1") == "history-obj"
-        storage.get_trip_as_history.assert_called_once_with("trip-1")
+        storage.get_trip_as_history.assert_called_once_with("trip-1", user_id=None)
 
     def test_list_trips_delegates_to_storage(self):
         storage = MagicMock()
@@ -951,7 +951,7 @@ class TestCRUDWrappers:
         storage.delete_trip.return_value = True
         svc = _build_service(storage=storage)
         assert svc.delete_trip("trip-1") is True
-        storage.delete_trip.assert_called_once_with("trip-1")
+        storage.delete_trip.assert_called_once_with("trip-1", user_id=None)
 
 
 # ============================================================================

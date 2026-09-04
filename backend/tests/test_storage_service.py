@@ -108,6 +108,49 @@ class TestStorageService:
         trip = storage.get_trip(trip_id)
         assert trip is None
 
+    # ==================== 设备隔离测试 ====================
+
+    def test_get_trip_scoped_by_user(self, storage, sample_request, sample_response):
+        """携带 user_id 读取时，其他用户的行程不可见"""
+        trip_id = storage.create_trip(sample_request, sample_response, user_id="dev-a")
+
+        assert storage.get_trip(trip_id, user_id="dev-a") is not None
+        assert storage.get_trip(trip_id, user_id="dev-b") is None
+
+    def test_delete_trip_scoped_by_user(self, storage, sample_request, sample_response):
+        """携带 user_id 删除时，其他用户的行程不可删除"""
+        trip_id = storage.create_trip(sample_request, sample_response, user_id="dev-a")
+
+        assert storage.delete_trip(trip_id, user_id="dev-b") is False
+        assert storage.get_trip(trip_id) is not None
+
+        assert storage.delete_trip(trip_id, user_id="dev-a") is True
+        assert storage.get_trip(trip_id) is None
+
+    def test_delete_trips_scoped_by_user(self, storage, sample_request, sample_response):
+        """批量删除仅影响属于该用户的记录"""
+        resp_a = sample_response.model_copy(update={"trip_id": "TRIP-A"})
+        resp_b = sample_response.model_copy(update={"trip_id": "TRIP-B"})
+        id_a = storage.create_trip(sample_request, resp_a, user_id="dev-a")
+        id_b = storage.create_trip(sample_request, resp_b, user_id="dev-b")
+
+        assert storage.delete_trips([id_a, id_b], user_id="dev-b") == 1
+        assert storage.get_trip(id_a) is not None
+        assert storage.get_trip(id_b) is None
+
+    def test_set_favorites_scoped_by_user(self, storage, sample_request, sample_response):
+        """批量收藏仅影响属于该用户的记录"""
+        resp_a = sample_response.model_copy(update={"trip_id": "TRIP-A"})
+        resp_b = sample_response.model_copy(update={"trip_id": "TRIP-B"})
+        id_a = storage.create_trip(sample_request, resp_a, user_id="dev-a")
+        id_b = storage.create_trip(sample_request, resp_b, user_id="dev-b")
+
+        assert storage.set_favorites([id_a, id_b], True, user_id="dev-b") == 1
+        trip_a = storage.get_trip(id_a)
+        trip_b = storage.get_trip(id_b)
+        assert trip_a["is_favorite"] is False
+        assert trip_b["is_favorite"] is True
+
     # ==================== 查询测试 ====================
 
     def test_list_trips(self, storage, sample_request, sample_response):
