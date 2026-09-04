@@ -65,6 +65,8 @@ export interface TripHistorySummary {
   model_used?: string | null
   /** 生成耗时（秒） */
   generation_time?: number | null
+  /** 封面图片 URL（取自行程中的景点图片） */
+  cover_image?: string | null
 }
 
 /** 行程历史分页响应：与 schemas.TripHistoryListResponse 对齐 */

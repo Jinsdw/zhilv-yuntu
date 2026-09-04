@@ -53,6 +53,37 @@ def json_deserialize(data: str) -> Any:
     return json.loads(data)
 
 
+def _first_image(images: List[str], cover: Optional[str] = None) -> Optional[str]:
+    """取第一张可用图片 URL（优先封面），供历史卡片封面使用。"""
+    candidates = ([cover] if cover else []) + list(images or [])
+    for url in candidates:
+        if url and str(url).strip():
+            return str(url).strip()
+    return None
+
+
+def _pick_cover_image(response_data: Optional[Dict[str, Any]]) -> Optional[str]:
+    """从行程响应数据中挑选首张景点/美食图片作为历史卡片封面。"""
+    if not response_data:
+        return None
+    for day in response_data.get("days") or []:
+        for item in day.get("items") or []:
+            place = item.get("place") or {}
+            url = _first_image(place.get("images") or [], place.get("cover_image"))
+            if url:
+                return url
+        for meal_key in ("breakfast", "lunch", "dinner"):
+            meal = day.get(meal_key) or {}
+            url = _first_image(meal.get("images") or [])
+            if url:
+                return url
+        hotel = day.get("hotel") or {}
+        url = _first_image(hotel.get("images") or [], hotel.get("cover_image"))
+        if url:
+            return url
+    return None
+
+
 class DatabaseError(Exception):
     """数据库错误"""
     pass
@@ -534,6 +565,7 @@ class StorageService:
                         "user_rating": t.user_rating,
                         "model_used": t.model_used,
                         "generation_time": t.generation_time,
+                        "cover_image": _pick_cover_image(t.response_data),
                     }
                     for t in trips_db
                 ]

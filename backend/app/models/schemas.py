@@ -559,6 +559,7 @@ class TripHistorySummary(BaseModel):
     user_rating: Optional[int] = Field(default=None, description="用户评分")
     model_used: Optional[str] = Field(default=None, description="使用的模型")
     generation_time: Optional[float] = Field(default=None, description="生成耗时(秒)")
+    cover_image: Optional[str] = Field(default=None, description="封面图片URL(取自行程中的景点图片)")
 
 
 class TripHistoryListResponse(BaseModel):

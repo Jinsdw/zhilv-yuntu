@@ -49,6 +49,25 @@ body {
   border-color: rgba(192, 71, 47, 0.32);
 }
 
+/* 历史明信片卡片：更圆润 + 柔和投影（覆盖 zl-paper-card 默认） */
+.zl-paper-card--postcard {
+  border-radius: 22px;
+  box-shadow: 0 10px 28px rgba(43, 33, 24, 0.1);
+}
+
+.zl-paper-card--postcard:hover {
+  box-shadow: 0 16px 36px rgba(43, 33, 24, 0.16);
+}
+
+/* 选中态：主题色描边 + 光晕（角标在组件内实现） */
+.zl-paper-card--selected,
+.zl-paper-card--selected:hover {
+  border-color: rgba(192, 71, 47, 0.9);
+  box-shadow:
+    0 0 0 2px rgba(192, 71, 47, 0.55),
+    0 14px 32px rgba(192, 71, 47, 0.18);
+}
+
 /* 首页 Hero 的暖阳底纹（大面积装饰渐变，不承载文本对比度） */
 .zl-hero {
   position: relative;

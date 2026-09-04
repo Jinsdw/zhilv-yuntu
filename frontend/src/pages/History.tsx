@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import {
+  CheckOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
@@ -224,6 +225,11 @@ export default function History() {
     navigate(`${ROUTES.result}?trip_id=${encodeURIComponent(item.id)}`)
   }
 
+  /** 点击卡片：切换选中状态；查看详情请用卡片上的「查看」按钮 */
+  const activateCard = (item: TripHistorySummary) => {
+    toggleOne(item.id)
+  }
+
   const rowActions: MenuProps['items'] = [
     { key: 'md', label: '导出 Markdown', icon: <DownloadOutlined /> },
     { key: 'pdf', label: '导出 PDF', icon: <DownloadOutlined /> },
@@ -331,22 +337,22 @@ export default function History() {
           return (
             <Col key={item.id} xs={24} sm={12} lg={8}>
               <div
-                className="zl-paper-card zl-paper-card--hover"
+                className={`zl-paper-card zl-paper-card--postcard zl-paper-card--hover${selected ? ' zl-paper-card--selected' : ''}`}
                 role="button"
                 tabIndex={0}
-                onClick={() => openTripDetail(item)}
+                onClick={() => activateCard(item)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
-                    openTripDetail(item)
+                    activateCard(item)
                   }
                 }}
                 style={{
+                  position: 'relative',
                   display: 'flex',
                   flexDirection: 'column',
                   overflow: 'hidden',
                   cursor: 'pointer',
-                  outline: selected ? '2px solid rgba(192,71,47,0.6)' : 'none',
                   height: '100%',
                 }}
               >
@@ -354,7 +360,9 @@ export default function History() {
                 <div
                   style={{
                     height: 96,
-                    background: coverGradient(item.destination),
+                    background: item.cover_image
+                      ? `linear-gradient(135deg, rgba(20,24,38,0.25), rgba(20,24,38,0.55)), url("${item.cover_image}") center / cover no-repeat`
+                      : coverGradient(item.destination),
                     position: 'relative',
                     padding: 16,
                     display: 'flex',
@@ -362,8 +370,21 @@ export default function History() {
                     justifyContent: 'space-between',
                   }}
                 >
-                  <Typography.Text className="zl-serif" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', lineHeight: 1 }}>
-                    {item.destination.slice(0, 1)}
+                  <Typography.Text
+                    className="zl-serif"
+                    style={{
+                      fontSize: 22,
+                      fontWeight: 600,
+                      color: 'rgba(255,255,255,0.96)',
+                      lineHeight: 1.15,
+                      maxWidth: '70%',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      textShadow: '0 1px 8px rgba(20,24,38,0.55)',
+                    }}
+                  >
+                    {item.destination}
                   </Typography.Text>
                   <Flex gap={6}>
                     {item.is_favorite && (
@@ -371,27 +392,11 @@ export default function History() {
                         收藏
                       </Tag>
                     )}
-                    {item.model_used && (
-                      <Tag style={{ marginInlineEnd: 0, borderRadius: 999, background: 'rgba(255,255,255,0.85)', border: 'none' }}>
-                        {item.model_used}
-                      </Tag>
-                    )}
                   </Flex>
                 </div>
 
                 {/* 卡片正文 */}
                 <Flex vertical gap={8} style={{ padding: 16, flex: 1 }}>
-                  <Flex justify="space-between" align="flex-start" gap={8}>
-                    <Typography.Text strong style={{ fontSize: 17 }}>
-                      {item.destination}
-                    </Typography.Text>
-                    <Checkbox
-                      checked={selected}
-                      onChange={() => toggleOne(item.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label={`选择 ${item.destination}`}
-                    />
-                  </Flex>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {formatDateCN(item.start_date)} 至 {formatDateCN(item.end_date)}
                   </Typography.Text>
@@ -471,6 +476,29 @@ export default function History() {
                     </Popconfirm>
                   </Flex>
                 </Flex>
+
+                {/* 选中角标：左下角三角形 + 对勾 */}
+                {selected && (
+                  <div
+                    aria-hidden
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      bottom: 0,
+                      width: 34,
+                      height: 34,
+                      background: '#C0472F',
+                      clipPath: 'polygon(0 0, 0 100%, 100% 100%)',
+                      display: 'flex',
+                      alignItems: 'flex-end',
+                      justifyContent: 'flex-start',
+                      paddingLeft: 5,
+                      paddingBottom: 5,
+                    }}
+                  >
+                    <CheckOutlined style={{ color: '#fff', fontSize: 13 }} />
+                  </div>
+                )}
               </div>
             </Col>
           )

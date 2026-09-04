@@ -14,6 +14,10 @@ from app.models.schemas import (
     TripRequest,
     TripResponse,
     BudgetInfo,
+    Coordinate,
+    ItineraryDay,
+    ItineraryItem,
+    PlaceInfo,
 )
 
 
@@ -134,6 +138,52 @@ class TestStorageService:
         trips, total = storage.list_trips(user_id="test_user", limit=2, offset=2)
         assert len(trips) == 2
         assert total == 5
+
+    def test_list_trips_cover_image(self, storage, sample_request):
+        """测试列表查询返回行程首张景点图片作为封面"""
+        response = TripResponse(
+            trip_id="TRIP-COVER",
+            destination="北京",
+            trip_name="北京1日游",
+            start_date=sample_request.start_date,
+            end_date=sample_request.start_date,
+            total_days=1,
+            days=[
+                ItineraryDay(
+                    day_number=1,
+                    itinerary_date=sample_request.start_date,
+                    items=[
+                        ItineraryItem(
+                            start_time="09:00",
+                            end_time="11:00",
+                            place=PlaceInfo(
+                                place_id="p-1",
+                                name="故宫",
+                                address="东城区",
+                                coordinate=Coordinate(latitude=39.9163, longitude=116.3972),
+                                category="景点",
+                                images=["https://example.com/forbidden-city.jpg"],
+                                cover_image="https://example.com/forbidden-city-cover.jpg",
+                            ),
+                            activity="游览",
+                        )
+                    ],
+                    total_places=1,
+                )
+            ],
+            budget=BudgetInfo(
+                total_budget=1000,
+                daily_avg_budget=1000,
+                budget_per_person=1000,
+            ),
+            generation_time=2.0,
+            model_used="glm-4.6v-FlashX",
+        )
+        storage.create_trip(sample_request, response, user_id="test_user")
+
+        trips, total = storage.list_trips(user_id="test_user")
+        assert total == 1
+        assert trips[0]["cover_image"] == "https://example.com/forbidden-city-cover.jpg"
 
     def test_search_trips(self, storage, sample_request, sample_response):
         """测试搜索"""
