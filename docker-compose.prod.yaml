@@ -34,6 +34,8 @@ services:
       - CHROMA_DB_PATH=/app/chroma_db
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/trips.db}
       - CACHE_ENABLED=${CACHE_ENABLED:-false}
+      # 容器内 Redis 服务名（local dev 请用 .env 的 REDIS_URL 覆盖）
+      - REDIS_URL=redis://redis:6379/0
       - GUIDE_DOCS_PATH=/app/data
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FILE_PATH=/app/logs/app.log
