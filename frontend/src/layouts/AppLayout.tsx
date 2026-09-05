@@ -1,6 +1,7 @@
 import {
   CompassOutlined,
   FileTextOutlined,
+  GithubOutlined,
   HistoryOutlined,
   MoonOutlined,
   RocketOutlined,
@@ -92,14 +93,26 @@ export default function AppLayout() {
           />
         </Flex>
 
-        {/* 明暗开关 */}
-        <Button
-          type="text"
-          aria-label={dark ? '切换到浅色模式' : '切换到深色模式'}
-          icon={dark ? <SunOutlined /> : <MoonOutlined />}
-          onClick={toggle}
-          style={{ flexShrink: 0, fontSize: 16 }}
-        />
+        {/* 右上角：GitHub 链接 + 明暗开关 */}
+        <Flex align="center" gap={8} style={{ flexShrink: 0 }}>
+          <a
+            href="https://github.com/Jinsdw/zhilv-yuntu"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="查看 GitHub 仓库"
+            title="GitHub"
+            style={{ color: token.colorTextSecondary, fontSize: 18, lineHeight: 1 }}
+          >
+            <GithubOutlined />
+          </a>
+          <Button
+            type="text"
+            aria-label={dark ? '切换到浅色模式' : '切换到深色模式'}
+            icon={dark ? <SunOutlined /> : <MoonOutlined />}
+            onClick={toggle}
+            style={{ fontSize: 16 }}
+          />
+        </Flex>
       </Header>
 
       <Content style={{ padding: 28, paddingTop: 24 }}>

@@ -77,6 +77,15 @@ npm run dev
 
 > 详细启动方式见 [docs/STARTUP.md](docs/STARTUP.md)，环境变量见 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)。
 
+## 部署上线（服务器）
+
+完整的宝塔面板部署步骤见 [deploy/DEPLOY.md](deploy/DEPLOY.md)：
+
+- 本地打包：`powershell -ExecutionPolicy Bypass -File .\deploy\package.ps1`（产物在 `deploy/zhilv-yuntu-*.zip`）
+- 服务器后端：`docker compose -f docker-compose.prod.yaml up -d --build backend redis`
+- 服务器前端：`cd frontend && npm install && npm run build`（产物 `frontend/dist`）
+- Nginx 站点配置模板：[deploy/zhilv-nginx.conf](deploy/zhilv-nginx.conf)
+
 ## API 概览
 
 需要归属校验的接口通过请求头 `X-Device-Id` 携带设备标识（前端 axios 拦截器自动附加）。

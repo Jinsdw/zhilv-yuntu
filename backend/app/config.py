@@ -92,12 +92,13 @@ settings = Settings()
 # ============================================================================
 # 日志配置：全量日志落盘（loguru 文件 sink）
 # ============================================================================
-# 项目根目录：config.py 位于 backend/app/ 下，向上两级即项目根
-BASE_DIR = Path(__file__).resolve().parents[2]
+# backend 目录：config.py 位于 backend/app/ 下，向上两级即 backend 目录。
+# 宿主机与容器内路径一致（容器内为 /app/logs/app.log，对应挂载的 backend/logs）
+BASE_DIR = Path(__file__).resolve().parents[1]
 
 # 完整日志文件路径（可用环境变量 LOG_FILE_PATH 覆盖）
 LOG_FILE_PATH = os.getenv(
-    "LOG_FILE_PATH", str(BASE_DIR / "backend" / "logs" / "app.log")
+    "LOG_FILE_PATH", str(BASE_DIR / "logs" / "app.log")
 )
 
 logger.add(

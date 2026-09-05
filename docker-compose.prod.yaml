@@ -1,39 +1,28 @@
 # ============================================
-# 智旅云图 - Docker Compose 编排配置
+# 智旅云图 - 生产环境编排（服务器专用，独立文件）
 # ============================================
+# 用法（在项目根目录、.env 配置完成后执行）:
+#   docker compose -f docker-compose.prod.yaml up -d --build backend redis
 #
-# 包含服务:
-#   - backend: FastAPI 后端服务
-#   - redis: Redis 缓存服务（可选）
-#
-# 前端说明:
-#   前端使用本地 Node.js 环境运行（npm run dev）
-#   通过 Nginx 反向代理访问后端 API
-#
-# 使用方式:
-#   后端启动: docker-compose up -d backend redis
-#   查看日志: docker-compose logs -f backend
-#   停止服务: docker-compose down
-#
+# 与开发版 docker-compose.yaml 的差异:
+#   - 后端端口只绑定 127.0.0.1:8000，由 Nginx 反代，不直接暴露公网
+#   - Redis 不对外映射端口，仅容器内部网络使用（CACHE_ENABLED=false 时基本闲置）
+#   - 代码目录 ./backend 直接挂载 /app：改代码重启容器即可生效，改依赖需重新 build
+#   - 日志写入 /app/logs/app.log（宿主机 backend/logs/app.log），由 LOG_FILE_PATH 指定
+#   - DEBUG / CORS_ORIGINS 通过 .env 传入，生产环境请设 DEBUG=false
 
 services:
-  # ----------------------------------------
-  # 后端服务 (FastAPI)
-  # ----------------------------------------
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: zhilv-backend
-    # 开发模式：覆盖 Dockerfile 的生产 CMD，保留热重载
-    command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      # Python 环境
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-      # 环境变量 (由 .env 文件提供)
+      - DEBUG=${DEBUG:-false}
       - ZHIPU_API_KEY=${ZHIPU_API_KEY}
       - ZHIPU_MODEL=${ZHIPU_MODEL:-glm-4.6v-FlashX}
       - LLM_BASE_URL=${LLM_BASE_URL}
@@ -47,13 +36,12 @@ services:
       - CACHE_ENABLED=${CACHE_ENABLED:-false}
       - GUIDE_DOCS_PATH=/app/data
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FILE_PATH=/app/logs/app.log
+      # 留空=允许所有来源（同源反代下安全）；生产建议在 .env 填 https://你的域名
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
     volumes:
-      # 挂载本地代码目录，支持热更新
+      # 代码目录：改代码重启即可生效；改 requirements 后需重新 build
       - ./backend:/app
-      # 挂载数据目录
-      - backend-data:/app/data
-      # 挂载ChromaDB向量数据库
-      - chroma-data:/app/chroma_db
     depends_on:
       - redis
     networks:
@@ -66,17 +54,12 @@ services:
       retries: 3
       start_period: 40s
 
-  # ----------------------------------------
-  # Redis 缓存服务 (可选)
-  # ----------------------------------------
   redis:
     image: redis:7-alpine
     container_name: zhilv-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes
     networks:
       - zhilv-network
     restart: unless-stopped
@@ -86,23 +69,10 @@ services:
       timeout: 5s
       retries: 3
 
-# ----------------------------------------
-# 数据卷配置
-# ----------------------------------------
 volumes:
-  # 后端数据目录
-  backend-data:
-    driver: local
-  # ChromaDB 向量数据库
-  chroma-data:
-    driver: local
-  # Redis 数据持久化
   redis-data:
     driver: local
 
-# ----------------------------------------
-# 网络配置
-# ----------------------------------------
 networks:
   zhilv-network:
     driver: bridge
