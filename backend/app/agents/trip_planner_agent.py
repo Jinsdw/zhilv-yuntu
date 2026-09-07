@@ -29,7 +29,7 @@ from typing import Any, Optional, Union
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from app.config import settings
+from app.config import get_active_llm_config, settings
 from app.models.schemas import (
     BudgetInfo,
     BudgetLevel,
@@ -578,7 +578,7 @@ class TripPlannerAgent:
         self._rag_tool = rag_tool
         self._auto_client = client is _UNSET
         self._client = None if client is _UNSET else client
-        self.model = model or settings.ZHIPU_MODEL
+        self.model = model or get_active_llm_config()["model"]
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.max_tool_rounds = max(1, int(max_tool_rounds))
@@ -835,7 +835,7 @@ class TripPlannerAgent:
             if hasattr(client, "chat") and hasattr(client.chat, "completions"):
                 # 旧版 zai 路径
                 resp = client.chat.completions.create(
-                    model=self.model or settings.ZHIPU_MODEL,
+                    model=self.model or get_active_llm_config()["model"],
                     messages=[
                         {
                             "role": "system",

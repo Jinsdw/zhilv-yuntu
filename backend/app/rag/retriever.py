@@ -15,6 +15,8 @@ import redis
 import yaml
 from loguru import logger
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from app.config import settings
 from app.rag.guide_catalog import guide_catalog
 from app.rag.vector_db import vector_db_service, hybrid_search_engine
@@ -105,14 +107,15 @@ class IntentDetector:
         self._initialized = False
 
     def _get_client(self):
-        """获取 LLM 客户端"""
+        """获取 LLM 客户端（跟随 LLM_PROVIDER 配置：zhipu / packycode）"""
         if self._client is None:
             try:
-                from zai import ZhipuAiClient
-                self._client = ZhipuAiClient(api_key=settings.ZHIPU_API_KEY)
+                from app.agents.llm_factory import build_llm
+
+                self._client = build_llm(temperature=0.1, max_tokens=1500)
                 self._initialized = True
-            except ImportError:
-                logger.warning("zai 未安装，意图检测将使用降级方案")
+            except Exception as exc:
+                logger.warning(f"LLM 客户端构造失败，意图检测将使用降级方案: {exc}")
                 self._initialized = False
                 return None
         return self._client
@@ -139,17 +142,14 @@ class IntentDetector:
             return self._fallback_detection(query)
 
         try:
-            response = self._client.chat.completions.create(
-                model=settings.ZHIPU_MODEL,
-                messages=[
-                    {"role": "system", "content": self.SYSTEM_PROMPT},
-                    {"role": "user", "content": self.USER_PROMPT_TEMPLATE.format(query=query)}
-                ],
-                temperature=0.1,
-                max_tokens=1500
+            response = self._client.invoke(
+                [
+                    SystemMessage(content=self.SYSTEM_PROMPT),
+                    HumanMessage(content=self.USER_PROMPT_TEMPLATE.format(query=query)),
+                ]
             )
 
-            content = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
+            content = (response.content or "").strip()
 
             if not content:
                 logger.error(f"LLM 返回空内容，原始响应: {response}")

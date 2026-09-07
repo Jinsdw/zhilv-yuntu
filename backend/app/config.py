@@ -25,17 +25,33 @@ class Settings(BaseSettings):
     AMAP_API_KEY: str = ""
     AMAP_JS_API_KEY: str = ""
 
-    # 智谱大模型 API（从 .env / 环境变量读取）
+    # 大模型平台切换：zhipu（智谱）| packycode（PackyAPI，OpenAI 兼容端点）
+    # 控制所有"对话/生成"类 LLM 调用：行程生成、JSON 修复、天气建议、意图识别
+    LLM_PROVIDER: str = "zhipu"
+
+    # 智谱大模型 API（平台一）
     ZHIPU_API_KEY: str = ""
     ZHIPU_MODEL: str = "glm-4.6v-FlashX"
-
-    # LLM API 基础配置
     LLM_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
+
+    # packycode 大模型 API（平台二，OpenAI 兼容端点）
+    PACKY_API_KEY: str = ""
+    PACKY_MODEL: str = "deepseek-v4-flash"
+    PACKY_BASE_URL: str = "https://www.packyapi.com/v1"
 
     # Embedding 配置（从 .env / 环境变量读取；默认 API key 复用 ZHIPU_API_KEY）
     EMBEDDING_MODEL: str = "embedding-3"
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
+
+    @model_validator(mode="after")
+    def _validate_llm_provider(self):
+        """LLM_PROVIDER 仅允许 zhipu / packycode。"""
+        if self.LLM_PROVIDER not in ("zhipu", "packycode"):
+            raise ValueError(
+                f"LLM_PROVIDER 仅支持 'zhipu' 或 'packycode'，当前为: {self.LLM_PROVIDER!r}"
+            )
+        return self
 
     @model_validator(mode="after")
     def _embedding_key_fallback(self):
@@ -90,6 +106,31 @@ settings = Settings()
 
 
 # ============================================================================
+# 大模型平台解析
+# ============================================================================
+def get_active_llm_config() -> dict:
+    """
+    返回当前 LLM_PROVIDER 对应的生成模型配置。
+
+    Returns:
+        {"provider": ..., "model": ..., "base_url": ..., "api_key": ...}
+    """
+    if settings.LLM_PROVIDER == "packycode":
+        return {
+            "provider": "packycode",
+            "model": settings.PACKY_MODEL,
+            "base_url": settings.PACKY_BASE_URL.rstrip("/"),
+            "api_key": settings.PACKY_API_KEY,
+        }
+    return {
+        "provider": "zhipu",
+        "model": settings.ZHIPU_MODEL,
+        "base_url": settings.LLM_BASE_URL.rstrip("/"),
+        "api_key": settings.ZHIPU_API_KEY,
+    }
+
+
+# ============================================================================
 # 日志配置：全量日志落盘（loguru 文件 sink）
 # ============================================================================
 # backend 目录：config.py 位于 backend/app/ 下，向上两级即 backend 目录。
@@ -116,10 +157,12 @@ logger.add(
 # ============================================================================
 # 启动期必填项校验
 # ============================================================================
-REQUIRED_KEYS = {
-    "AMAP_API_KEY": "高德地图 API Key",
-    "ZHIPU_API_KEY": "智谱大模型 API Key",
-}
+REQUIRED_KEYS = {"AMAP_API_KEY": "高德地图 API Key"}
+if settings.LLM_PROVIDER == "packycode":
+    REQUIRED_KEYS["PACKY_API_KEY"] = "packycode API Key"
+else:
+    REQUIRED_KEYS["ZHIPU_API_KEY"] = "智谱大模型 API Key"
+
 
 missing = []
 for key, label in REQUIRED_KEYS.items():

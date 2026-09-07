@@ -26,6 +26,10 @@ services:
       - ZHIPU_API_KEY=${ZHIPU_API_KEY}
       - ZHIPU_MODEL=${ZHIPU_MODEL:-glm-4.6v-FlashX}
       - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_PROVIDER=${LLM_PROVIDER:-zhipu}
+      - PACKY_API_KEY=${PACKY_API_KEY}
+      - PACKY_MODEL=${PACKY_MODEL:-deepseek-v4-flash}
+      - PACKY_BASE_URL=${PACKY_BASE_URL:-https://www.packyapi.com/v1}
       - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL}
       - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL}
