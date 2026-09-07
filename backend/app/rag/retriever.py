@@ -17,6 +17,7 @@ from loguru import logger
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.agents.llm_factory import log_llm_invocation
 from app.config import settings
 from app.rag.guide_catalog import guide_catalog
 from app.rag.vector_db import vector_db_service, hybrid_search_engine
@@ -142,6 +143,7 @@ class IntentDetector:
             return self._fallback_detection(query)
 
         try:
+            log_llm_invocation()
             response = self._client.invoke(
                 [
                     SystemMessage(content=self.SYSTEM_PROMPT),

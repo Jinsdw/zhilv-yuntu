@@ -29,6 +29,7 @@ from typing import Any, Optional, Union
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from app.agents.llm_factory import log_llm_invocation
 from app.config import get_active_llm_config, settings
 from app.models.schemas import (
     BudgetInfo,
@@ -830,6 +831,7 @@ class TripPlannerAgent:
         client = self._get_client()
         if client is None:
             return None
+        log_llm_invocation()
         try:
             # 兼容 LangChain BaseChatModel 与旧版 zai 客户端
             if hasattr(client, "chat") and hasattr(client.chat, "completions"):

@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from langchain_openai import ChatOpenAI
+from loguru import logger
 
 from app.config import get_active_llm_config, settings
 
@@ -48,6 +49,19 @@ def build_llm(
         max_tokens=max_tokens,
         streaming=streaming,
         timeout=timeout,
+    )
+
+
+def log_llm_invocation() -> None:
+    """
+    在每次调用大模型前打印当前平台与模型，便于日志定位输出来源。
+
+    所有真实 LLM 调用（行程生成 / JSON 修复 / 天气建议 / 意图识别）
+    都在 invoke 之前调用本函数。
+    """
+    cfg = get_active_llm_config()
+    logger.info(
+        f"调用大模型: 平台={cfg['provider']} 模型={cfg['model']} 端点={cfg['base_url']}"
     )
 
 

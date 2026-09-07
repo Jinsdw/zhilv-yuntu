@@ -33,7 +33,7 @@ from typing import Any, Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from loguru import logger
 
-from app.agents.llm_factory import build_json_llm, build_llm
+from app.agents.llm_factory import build_json_llm, build_llm, log_llm_invocation
 from app.agents.rag_tool import rag_tool as default_rag_tool
 from app.agents.state import EditDayState, PlannerState
 from app.agents.trip_planner_agent import (
@@ -184,6 +184,7 @@ def llm_plan_node(state: PlannerState) -> dict:
         from app.agents.tools import get_default_rag_tools
         llm = llm.bind_tools(get_default_rag_tools())
 
+    log_llm_invocation()
     try:
         ai_msg = llm.invoke(messages_for_llm)
     except Exception as e:
