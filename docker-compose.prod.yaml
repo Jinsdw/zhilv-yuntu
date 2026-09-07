@@ -37,6 +37,10 @@ services:
       # 容器内 Redis 服务名（local dev 请用 .env 的 REDIS_URL 覆盖）
       - REDIS_URL=redis://redis:6379/0
       - GUIDE_DOCS_PATH=/app/data
+      # Rerank 模型本地化：缓存放宿主机 backend/models/hf_cache，容器离线加载，避免联网下载超时
+      - HF_HOME=/app/models/hf_cache
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FILE_PATH=/app/logs/app.log
       # 留空=允许所有来源（同源反代下安全）；生产建议在 .env 填 https://你的域名

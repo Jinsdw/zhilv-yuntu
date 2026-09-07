@@ -96,6 +96,22 @@ docker compose -f docker-compose.prod.yaml logs -f backend
 - 日志落盘到宿主机 `backend/logs/app.log`（容器内 `/app/logs/app.log`）。
 - 改代码后 `docker compose -f docker-compose.prod.yaml restart backend` 即可生效；改 `requirements.txt` 后需重新 `up -d --build`。
 
+## 第 4.5 步：Rerank 模型本地化（推荐）
+
+A 级城市 RAG 重排使用本地模型 `BAAI/bge-reranker-v2-m3`（sentence-transformers CrossEncoder）。模型未缓存时容器会尝试从 huggingface.co 下载，国内服务器通常访问不了，导致首个 RAG 请求卡住直到超时（日志出现 `[Errno 101] Network is unreachable`）。因此建议先在本地把模型缓存下载好再上传：
+
+1. 本地 Windows 开发机项目根目录执行（或双击 `deploy/download_reranker.cmd`）：
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\deploy\download_reranker.ps1
+   ```
+   产物：`backend\models\hf_cache\hub\models--BAAI--bge-reranker-v2-m3\snapshots\...`（约 2.3GB，走 hf-mirror，失败自动直连 HuggingFace）。
+2. 把 `backend\models\hf_cache` 上传到服务器 `/www/wwwroot/zhilv/backend/models/`（宝塔/SFTP 单独传这个目录，2.3GB 不建议打进 zip；若用 `deploy/package.ps1` 打包也会包含该目录）。
+3. `docker-compose.prod.yaml` 已配置 `HF_HOME=/app/models/hf_cache`、`HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1`，容器直接离线加载，不再联网。
+4. 重启后端生效：
+   ```bash
+   docker compose -f docker-compose.prod.yaml restart backend
+   ```
+5. 验证：日志出现 `Rerank 模型加载成功` 即正常（不再出现 `Network is unreachable`）。
 ## 第 5 步：构建前端
 
 ```bash
@@ -143,5 +159,6 @@ npm run build
 | `docker pull` / `pip install` 很慢 | 配置腾讯云内网镜像源，见第 1 步 |
 | 地图白屏/无法加载 | 高德 JSAPI Key 域名白名单未包含你的域名；`AMAP_SECURITY_JS_CODE` 未配置 |
 | 生成行程很慢或 504 | Nginx `proxy_read_timeout` 已放宽到 300s；检查智谱 API Key 配额 |
+| 生成行程超时，日志出现 `huggingface_hub ... Network is unreachable` | Rerank 模型未缓存：本地跑 `deploy/download_reranker.ps1` 并把 `backend\models\hf_cache` 上传到服务器，见第 4.5 步 |
 | `/health` 返回 503 | 数据库初始化失败，看 `backend/logs/app.log` |
 | 端口 8000 被占用 | `docker compose -f docker-compose.prod.yaml ps` 确认无旧容器，或 `docker compose ... down` 后重试 |
