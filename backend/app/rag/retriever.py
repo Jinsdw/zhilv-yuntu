@@ -489,11 +489,28 @@ class Reranker:
         self._initialized = False
         self._model_name = "BAAI/bge-reranker-v2-m3"
 
+    def _enable_offline_if_cached(self):
+        """模型已缓存时启用 HF 离线模式，避免冷启动联网校验/下载。"""
+        if os.getenv("HF_HUB_OFFLINE"):
+            return
+        try:
+            from huggingface_hub.constants import HF_HUB_CACHE
+        except Exception:
+            return
+        model_dir = os.path.join(
+            HF_HUB_CACHE, "models--" + self._model_name.replace("/", "--")
+        )
+        if os.path.isdir(model_dir):
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+            os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+            logger.info(f"检测到本地 Rerank 模型缓存，启用 HF 离线模式: {model_dir}")
+
     def _load_model(self):
         """加载重排序模型"""
         if self._model is None and not self._initialized:
             try:
                 from sentence_transformers import CrossEncoder
+                self._enable_offline_if_cached()
                 self._model = CrossEncoder(self._model_name, max_length=512)
                 self._initialized = True
                 logger.info(f"Rerank 模型加载成功: {self._model_name}")
@@ -509,7 +526,7 @@ class Reranker:
         query: str,
         documents: list[dict],
         top_n: int = 5,
-        score_threshold: float = 0.35
+        score_threshold: float = 0.15
     ) -> list[dict]:
         """
         对检索结果进行重排序
@@ -521,7 +538,7 @@ class Reranker:
             score_threshold: 分数阈值
 
         Returns:
-            重排后的文档列表
+            重排后的文档列表；全部低于阈值时回落原始排序，避免空结果
         """
         if not documents:
             return []
@@ -549,6 +566,13 @@ class Reranker:
                 if doc.get("rerank_score", 0) >= score_threshold
             ]
 
+            if not filtered:
+                logger.warning(
+                    f"Rerank 分数均低于阈值 {score_threshold}，"
+                    f"回落原始排序（{len(reranked)} 条）"
+                )
+                return reranked[:top_n]
+
             return filtered[:top_n]
         except Exception as e:
             logger.error(f"Rerank 失败: {e}")
@@ -575,7 +599,8 @@ class Retriever:
         category: Optional[str] = None,
         use_cache: bool = True,
         use_rerank: bool = True,
-        top_k: int = 5
+        top_k: int = 5,
+        intent_info: Optional[dict] = None,
     ) -> dict:
         """
         执行检索的完整流程
@@ -587,6 +612,7 @@ class Retriever:
             use_cache: 是否使用缓存
             use_rerank: 是否使用重排序
             top_k: 返回结果数量
+            intent_info: 已计算的意图信息（降级重试复用，避免重复调用 LLM）
 
         Returns:
             {
@@ -606,7 +632,8 @@ class Retriever:
         stages["preprocess_ms"] = round((time.time() - start_time) * 1000, 2)
 
         intent_start = time.time()
-        intent_info = self.intent_detector.detect(query)
+        if intent_info is None:
+            intent_info = self.intent_detector.detect(query)
         stages["intent_detect_ms"] = round((time.time() - intent_start) * 1000, 2)
 
         intent = intent_info["primary_intent"]
@@ -649,7 +676,7 @@ class Retriever:
                 query=query,
                 documents=search_results,
                 top_n=top_k,
-                score_threshold=0.35
+                score_threshold=0.15
             )
             stages["rerank_ms"] = round((time.time() - rerank_start) * 1000, 2)
         else:
@@ -667,7 +694,10 @@ class Retriever:
         }
 
         if use_cache:
-            self.cache.set(query, cache_key_city, cache_key_intent, final_results, query_info)
+            if final_results:
+                self.cache.set(query, cache_key_city, cache_key_intent, final_results, query_info)
+            else:
+                logger.debug("检索结果为空，跳过缓存写入，避免空结果缓存")
 
         stages["total_ms"] = round((time.time() - start_time) * 1000, 2)
 

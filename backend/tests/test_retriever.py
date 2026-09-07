@@ -255,6 +255,25 @@ class TestReranker:
         assert len(result) == 2
         assert result[0]["document"] == "文档0"
 
+    def test_rerank_falls_back_to_raw_when_all_below_threshold(self):
+        """测试全部低于阈值时回落原始排序，避免把有结果变成空结果"""
+        class FakeCrossEncoder:
+            def predict(self, pairs):
+                return [0.19, 0.14, 0.12]
+
+        self.reranker._model = FakeCrossEncoder()
+        docs = [
+            {"document": "文档1"},
+            {"document": "文档2"},
+            {"document": "文档3"},
+        ]
+
+        result = self.reranker.rerank("测试查询", docs, top_n=5, score_threshold=0.35)
+
+        assert len(result) == 3
+        assert result[0]["document"] == "文档1"
+        assert result[0]["rerank_score"] == 0.19
+
 
 class TestRetriever:
     """测试统一检索服务"""
@@ -377,6 +396,39 @@ class TestRetriever:
 
         assert result["results"] == []
         assert result["cached"] is False
+
+    def test_retrieve_skips_caching_empty_results(self):
+        """测试空结果不写入缓存，避免空结果缓存毒化降级重试"""
+        with patch.object(self.retriever, "_get_query_embedding", return_value=[0.0] * 256):
+            with patch.object(self.retriever.search_engine, "search", return_value=[]):
+                with patch.object(self.retriever.cache, "set") as mock_set:
+                    self.retriever.retrieve(
+                        query="随便逛逛",
+                        use_cache=True,
+                        use_rerank=False,
+                    )
+
+        mock_set.assert_not_called()
+
+    def test_retrieve_reuses_intent_info(self):
+        """测试传入 intent_info 时跳过 LLM 意图检测"""
+        intent_info = {
+            "primary_intent": "dining",
+            "confidence": 0.9,
+            "secondary_intents": [],
+            "supplementary_terms": [],
+        }
+        with patch.object(self.retriever, "intent_detector") as mock_detector:
+            with patch.object(self.retriever, "_get_query_embedding", return_value=[0.0] * 256):
+                with patch.object(self.retriever.search_engine, "search", return_value=[]):
+                    self.retriever.retrieve(
+                        query="成都美食",
+                        use_cache=False,
+                        use_rerank=False,
+                        intent_info=intent_info,
+                    )
+
+        mock_detector.detect.assert_not_called()
 
 
 class TestRetrievalCacheIntegration:

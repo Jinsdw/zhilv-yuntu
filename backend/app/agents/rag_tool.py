@@ -558,6 +558,8 @@ class RAGTool:
             return result
 
         degraded = True
+        # 复用首次意图检测结果，避免降级重试重复调用 LLM
+        intent_hint = self._build_intent_hint(result)
         if category:
             logger.info("RAG 降级: 去掉 category 重试")
             result = self.retriever.retrieve(
@@ -567,6 +569,7 @@ class RAGTool:
                 use_cache=use_cache,
                 use_rerank=use_rerank,
                 top_k=top_k,
+                intent_info=intent_hint,
             )
             if result.get("results"):
                 result["_degraded"] = True
@@ -583,26 +586,41 @@ class RAGTool:
                 use_cache=use_cache,
                 use_rerank=use_rerank,
                 top_k=top_k,
+                intent_info=intent_hint,
             )
             if result.get("results"):
                 result["_degraded"] = True
                 return result
 
         if use_rerank:
-            logger.info("RAG 降级: 关闭 rerank 重试")
+            logger.info("RAG 降级: 关闭 rerank 重试（绕过缓存强制重查）")
             result = self.retriever.retrieve(
                 query=query,
                 city=city,
                 category=None,
-                use_cache=use_cache,
+                use_cache=False,
                 use_rerank=False,
                 top_k=top_k,
+                intent_info=intent_hint,
             )
             result["_degraded"] = True
             return result
 
         result["_degraded"] = degraded
         return result
+
+    @staticmethod
+    def _build_intent_hint(result: dict) -> Optional[dict]:
+        """从检索结果中提取意图信息，供降级重试复用（避免重复调用 LLM）。"""
+        qinfo = result.get("query_info") or {}
+        if not qinfo.get("intent"):
+            return None
+        return {
+            "primary_intent": qinfo.get("intent"),
+            "confidence": qinfo.get("confidence", 0),
+            "secondary_intents": qinfo.get("secondary_intents", []),
+            "supplementary_terms": qinfo.get("supplementary_terms", []),
+        }
 
     def _multi_path_retrieve(
         self,

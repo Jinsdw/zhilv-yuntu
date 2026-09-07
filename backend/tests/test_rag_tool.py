@@ -239,6 +239,33 @@ class TestSearchGuides:
         assert len(result.chunks) == 1
         assert mock_retriever.retrieve.call_count >= 2
 
+    def test_fallback_last_step_bypasses_cache(self, mock_retriever, tool):
+        """测试关闭 rerank 重试强制绕过缓存并复用首次意图"""
+        def _resp(with_result: bool = False):
+            return {
+                "results": [_make_doc("成都火锅推荐若干家老店。", category="餐饮")] if with_result else [],
+                "query_info": {
+                    "original": "成都",
+                    "city": "成都",
+                    "days": None,
+                    "intent": "dining",
+                    "confidence": 0.5,
+                },
+                "cached": False,
+            }
+
+        mock_retriever.retrieve.side_effect = [
+            _resp(), _resp(), _resp(), _resp(with_result=True),
+        ]
+        result = tool.search_guides(query="成都美食", city="成都", category="餐饮")
+
+        assert result.ok is True
+        assert len(result.chunks) == 1
+        last_kwargs = mock_retriever.retrieve.call_args_list[-1].kwargs
+        assert last_kwargs["use_cache"] is False
+        assert last_kwargs["use_rerank"] is False
+        assert last_kwargs["intent_info"]["primary_intent"] == "dining"
+
     def test_multi_path_for_itinerary(self, mock_retriever, tool):
         def _resp(cat: str, text: str):
             return {
