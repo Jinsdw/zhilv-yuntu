@@ -1,0 +1,19 @@
+# 运行时数据 / 本地环境，不打进镜像（docker-compose.prod.yaml 通过 ./backend:/app 挂载提供）
+data/
+chroma_db/
+models/
+logs/
+venv/
+.venv/
+__pycache__/
+.pytest_cache/
+tests/
+eval/
+exports/
+exports_tmp/
+amap_photos/
+backups/
+.env
+*.log
+*.pyc
+*.pyo
