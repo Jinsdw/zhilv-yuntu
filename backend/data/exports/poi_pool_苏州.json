@@ -1,0 +1,915 @@
+{
+  "city": "苏州",
+  "places": [
+    {
+      "place_id": "MOCK-S1",
+      "name": "苏州博物馆",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.288899999999998,
+        "longitude": 120.59530000000001
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "科教文化服务"
+      ],
+      "type_code": "140100",
+      "rating": 4.8,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": null,
+      "photos": [],
+      "source": "amap",
+      "score": 11.600000000000001,
+      "reason": "偏好:博物馆；风格:博物馆；评分4.8",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": true
+    },
+    {
+      "place_id": "MOCK-S4",
+      "name": "苏州老街历史街区",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2589,
+        "longitude": 120.62530000000001
+      },
+      "district": "平江区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "风景名胜"
+      ],
+      "type_code": "110000",
+      "rating": 4.5,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": null,
+      "photos": [],
+      "source": "amap",
+      "score": 8.3,
+      "reason": "风格:历史；评分4.5",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-S2",
+      "name": "苏州古城景区",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2789,
+        "longitude": 120.6053
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "风景名胜"
+      ],
+      "type_code": "110000",
+      "rating": 4.7,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 80.0,
+      "photos": [],
+      "source": "amap",
+      "score": 7.0,
+      "reason": "评分4.7",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-S3",
+      "name": "苏州中央公园",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2689,
+        "longitude": 120.6153
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "风景名胜"
+      ],
+      "type_code": "110101",
+      "rating": 4.6,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": null,
+      "photos": [],
+      "source": "amap",
+      "score": 6.8999999999999995,
+      "reason": "评分4.6",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-S5",
+      "name": "苏州湖滨风景区",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2489,
+        "longitude": 120.6353
+      },
+      "district": "吴中区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "风景名胜"
+      ],
+      "type_code": "110000",
+      "rating": 4.4,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 30.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.7,
+      "reason": "评分4.4",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-S6",
+      "name": "苏州寺",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2389,
+        "longitude": 120.6453
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "宗教场所"
+      ],
+      "type_code": "140600",
+      "rating": 4.3,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 20.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.6,
+      "reason": "评分4.3",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-F1",
+      "name": "苏州老字号苏帮菜馆",
+      "category": "餐厅",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2789,
+        "longitude": 120.6053
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "餐饮服务"
+      ],
+      "type_code": "050000",
+      "rating": 4.6,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 90.0,
+      "photos": [],
+      "source": "amap",
+      "score": 9.9,
+      "reason": "偏好:老字号；评分4.6",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-F2",
+      "name": "苏州特色汤包馆",
+      "category": "餐厅",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2689,
+        "longitude": 120.6153
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "餐饮服务"
+      ],
+      "type_code": "050000",
+      "rating": 4.5,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 35.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.8,
+      "reason": "评分4.5",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-F3",
+      "name": "苏州夜市烧烤",
+      "category": "餐厅",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2589,
+        "longitude": 120.62530000000001
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "餐饮服务"
+      ],
+      "type_code": "050000",
+      "rating": 4.0,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 60.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.3,
+      "reason": "评分4.0",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": false,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-H1",
+      "name": "苏州古城度假酒店",
+      "category": "酒店",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2789,
+        "longitude": 120.6053
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "住宿服务"
+      ],
+      "type_code": "100000",
+      "rating": 4.7,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 420.0,
+      "photos": [],
+      "source": "amap",
+      "score": 7.0,
+      "reason": "评分4.7",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": true
+    },
+    {
+      "place_id": "MOCK-H2",
+      "name": "苏州商务连锁酒店",
+      "category": "酒店",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2689,
+        "longitude": 120.6153
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "住宿服务"
+      ],
+      "type_code": "100000",
+      "rating": 4.4,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 260.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.7,
+      "reason": "评分4.4",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": true
+    },
+    {
+      "place_id": "MOCK-H3",
+      "name": "苏州青年旅舍",
+      "category": "酒店",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2589,
+        "longitude": 120.62530000000001
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "住宿服务"
+      ],
+      "type_code": "100100",
+      "rating": 4.1,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 120.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.3999999999999995,
+      "reason": "评分4.1",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": true
+    }
+  ],
+  "scenic_places": [
+    {
+      "place_id": "MOCK-S1",
+      "name": "苏州博物馆",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.288899999999998,
+        "longitude": 120.59530000000001
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "科教文化服务"
+      ],
+      "type_code": "140100",
+      "rating": 4.8,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": null,
+      "photos": [],
+      "source": "amap",
+      "score": 11.600000000000001,
+      "reason": "偏好:博物馆；风格:博物馆；评分4.8",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": true
+    },
+    {
+      "place_id": "MOCK-S4",
+      "name": "苏州老街历史街区",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2589,
+        "longitude": 120.62530000000001
+      },
+      "district": "平江区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "风景名胜"
+      ],
+      "type_code": "110000",
+      "rating": 4.5,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": null,
+      "photos": [],
+      "source": "amap",
+      "score": 8.3,
+      "reason": "风格:历史；评分4.5",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-S2",
+      "name": "苏州古城景区",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2789,
+        "longitude": 120.6053
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "风景名胜"
+      ],
+      "type_code": "110000",
+      "rating": 4.7,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 80.0,
+      "photos": [],
+      "source": "amap",
+      "score": 7.0,
+      "reason": "评分4.7",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-S3",
+      "name": "苏州中央公园",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2689,
+        "longitude": 120.6153
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "风景名胜"
+      ],
+      "type_code": "110101",
+      "rating": 4.6,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": null,
+      "photos": [],
+      "source": "amap",
+      "score": 6.8999999999999995,
+      "reason": "评分4.6",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-S5",
+      "name": "苏州湖滨风景区",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2489,
+        "longitude": 120.6353
+      },
+      "district": "吴中区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "风景名胜"
+      ],
+      "type_code": "110000",
+      "rating": 4.4,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 30.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.7,
+      "reason": "评分4.4",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-S6",
+      "name": "苏州寺",
+      "category": "景点",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2389,
+        "longitude": 120.6453
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "宗教场所"
+      ],
+      "type_code": "140600",
+      "rating": 4.3,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 20.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.6,
+      "reason": "评分4.3",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    }
+  ],
+  "food_places": [
+    {
+      "place_id": "MOCK-F1",
+      "name": "苏州老字号苏帮菜馆",
+      "category": "餐厅",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2789,
+        "longitude": 120.6053
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "餐饮服务"
+      ],
+      "type_code": "050000",
+      "rating": 4.6,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 90.0,
+      "photos": [],
+      "source": "amap",
+      "score": 9.9,
+      "reason": "偏好:老字号；评分4.6",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-F2",
+      "name": "苏州特色汤包馆",
+      "category": "餐厅",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2689,
+        "longitude": 120.6153
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "餐饮服务"
+      ],
+      "type_code": "050000",
+      "rating": 4.5,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 35.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.8,
+      "reason": "评分4.5",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": false
+    },
+    {
+      "place_id": "MOCK-F3",
+      "name": "苏州夜市烧烤",
+      "category": "餐厅",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2589,
+        "longitude": 120.62530000000001
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "餐饮服务"
+      ],
+      "type_code": "050000",
+      "rating": 4.0,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 60.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.3,
+      "reason": "评分4.0",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": false,
+      "has_wheelchair_access": false
+    }
+  ],
+  "hotel_places": [
+    {
+      "place_id": "MOCK-H1",
+      "name": "苏州古城度假酒店",
+      "category": "酒店",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2789,
+        "longitude": 120.6053
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "住宿服务"
+      ],
+      "type_code": "100000",
+      "rating": 4.7,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 420.0,
+      "photos": [],
+      "source": "amap",
+      "score": 7.0,
+      "reason": "评分4.7",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": true
+    },
+    {
+      "place_id": "MOCK-H2",
+      "name": "苏州商务连锁酒店",
+      "category": "酒店",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2689,
+        "longitude": 120.6153
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "住宿服务"
+      ],
+      "type_code": "100000",
+      "rating": 4.4,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 260.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.7,
+      "reason": "评分4.4",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": true
+    },
+    {
+      "place_id": "MOCK-H3",
+      "name": "苏州青年旅舍",
+      "category": "酒店",
+      "address": "",
+      "coordinate": {
+        "latitude": 31.2589,
+        "longitude": 120.62530000000001
+      },
+      "district": "姑苏区",
+      "business_area": "观前街",
+      "tags": [
+        "热门",
+        "住宿服务"
+      ],
+      "type_code": "100100",
+      "rating": 4.1,
+      "telephone": "0512-00000000",
+      "opening_hours": "09:00-17:00",
+      "distance": 500,
+      "adcode": "320500",
+      "city": "苏州",
+      "cost": 120.0,
+      "photos": [],
+      "source": "amap",
+      "score": 6.3999999999999995,
+      "reason": "评分4.1",
+      "suitable_for_kids": true,
+      "suitable_for_elderly": true,
+      "has_wheelchair_access": true
+    }
+  ],
+  "district_clusters": {
+    "姑苏区": [
+      "MOCK-S1",
+      "MOCK-S2",
+      "MOCK-S3",
+      "MOCK-S6"
+    ],
+    "平江区": [
+      "MOCK-S4"
+    ],
+    "吴中区": [
+      "MOCK-S5"
+    ]
+  },
+  "query_plan": {
+    "city": "苏州",
+    "target_size": 24,
+    "tasks": [
+      {
+        "mode": "keyword",
+        "keywords": "博物馆",
+        "types": null,
+        "limit": 15,
+        "priority": 100,
+        "label": "preferred:博物馆"
+      },
+      {
+        "mode": "keyword",
+        "keywords": "老字号",
+        "types": null,
+        "limit": 15,
+        "priority": 99,
+        "label": "preferred:老字号"
+      },
+      {
+        "mode": "keyword",
+        "keywords": "经典",
+        "types": null,
+        "limit": 15,
+        "priority": 98,
+        "label": "preferred:经典"
+      },
+      {
+        "mode": "keyword",
+        "keywords": "博物馆",
+        "types": "110000",
+        "limit": 15,
+        "priority": 50,
+        "label": "style_kw:博物馆"
+      },
+      {
+        "mode": "keyword",
+        "keywords": "古迹",
+        "types": "110000",
+        "limit": 15,
+        "priority": 49,
+        "label": "style_kw:古迹"
+      },
+      {
+        "mode": "keyword",
+        "keywords": "历史",
+        "types": "110000",
+        "limit": 15,
+        "priority": 48,
+        "label": "style_kw:历史"
+      },
+      {
+        "mode": "keyword",
+        "keywords": "寺庙",
+        "types": "110000",
+        "limit": 15,
+        "priority": 47,
+        "label": "style_kw:寺庙"
+      },
+      {
+        "mode": "keyword",
+        "keywords": "故居",
+        "types": "110000",
+        "limit": 15,
+        "priority": 46,
+        "label": "style_kw:故居"
+      },
+      {
+        "mode": "types",
+        "keywords": "苏州",
+        "types": "140100",
+        "limit": 15,
+        "priority": 40,
+        "label": "style_type:140100"
+      },
+      {
+        "mode": "types",
+        "keywords": "苏州",
+        "types": "140600",
+        "limit": 15,
+        "priority": 39,
+        "label": "style_type:140600"
+      },
+      {
+        "mode": "types",
+        "keywords": "苏州",
+        "types": "110000",
+        "limit": 15,
+        "priority": 38,
+        "label": "style_type:110000"
+      },
+      {
+        "mode": "types",
+        "keywords": "特色美食",
+        "types": "050000",
+        "limit": 15,
+        "priority": 35,
+        "label": "food:types"
+      },
+      {
+        "mode": "keyword",
+        "keywords": "必吃榜 老字号",
+        "types": "050000",
+        "limit": 15,
+        "priority": 34,
+        "label": "food:popular"
+      },
+      {
+        "mode": "types",
+        "keywords": "苏州",
+        "types": "100000",
+        "limit": 15,
+        "priority": 30,
+        "label": "hotel:types"
+      },
+      {
+        "mode": "keyword",
+        "keywords": "热门景点",
+        "types": "110000",
+        "limit": 15,
+        "priority": 20,
+        "label": "base:hot"
+      }
+    ],
+    "excluded_keywords": [
+      "酒吧",
+      "夜店"
+    ],
+    "preferred_keywords": [
+      "博物馆",
+      "老字号",
+      "经典"
+    ],
+    "seed_names": [],
+    "include_indoor": true,
+    "include_outdoor": true,
+    "with_kids": false,
+    "with_elderly": false,
+    "has_disability": false,
+    "travel_style": "cultural"
+  },
+  "fetched_at": "2026-09-07T16:22:00.126662+00:00",
+  "warnings": [],
+  "cache_hits": 16,
+  "raw_count": 115
+}

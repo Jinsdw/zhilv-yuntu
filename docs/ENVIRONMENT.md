@@ -31,6 +31,9 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
+| `LLM_PROVIDER` | `zhipu` | 大模型平台切换：`zhipu`（智谱）\| `zhipu4`（智谱 GLM-4 别名）\| `packycode` \| `deepseek` |
+| `LLM_TIMEOUT` | `60` | 对话/生成类 LLM 单次请求超时（秒），覆盖行程生成、JSON 修复、天气建议、意图识别 |
+| `EMBEDDING_TIMEOUT` | `30` | Embedding 向量化请求超时（秒） |
 | `ZHIPU_API_KEY` | （必填） | 智谱 API Key |
 | `ZHIPU_MODEL` | `glm-4.6v-FlashX` | 行程生成模型 |
 | `LLM_BASE_URL` | `https://open.bigmodel.cn/api/paas/v4` | OpenAI 兼容端点 |

@@ -5,7 +5,7 @@
 让 LangGraph / ToolNode 等机制原生可用，移除对 zai 库的硬依赖。
 
 平台由 .env 的 LLM_PROVIDER 切换（config.get_active_llm_config）：
-- zhipu（智谱）：https://open.bigmodel.cn/api/paas/v4
+- zhipu / zhipu4（智谱）：https://open.bigmodel.cn/api/paas/v4
 - packycode：https://www.packyapi.com/v1
 - deepseek（DeepSeek 官方 API）：https://api.deepseek.com/v1
 """
@@ -26,7 +26,7 @@ def build_llm(
     temperature: float = 0.3,
     max_tokens: int = 4096,
     streaming: bool = False,
-    timeout: float = 60.0,
+    timeout: float = settings.LLM_TIMEOUT,
 ) -> ChatOpenAI:
     """
     构造一个 LangChain ChatModel 实例，指向当前 LLM_PROVIDER 配置的 OpenAI 兼容端点。
@@ -36,7 +36,7 @@ def build_llm(
         temperature: 采样温度，规划类建议 0.2-0.4
         max_tokens: 单次输出最大 tokens
         streaming: 是否流式（LangGraph 节点一般用非流式，stream 模式由入口控制）
-        timeout: 单次请求超时（秒）
+        timeout: 单次请求超时（秒），默认取 settings.LLM_TIMEOUT
 
     Returns:
         ChatOpenAI 实例，可用于 LangGraph 的 ToolNode / create_react_agent

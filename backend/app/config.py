@@ -25,9 +25,15 @@ class Settings(BaseSettings):
     AMAP_API_KEY: str = ""
     AMAP_JS_API_KEY: str = ""
 
-    # 大模型平台切换：zhipu（智谱）| packycode（PackyAPI，OpenAI 兼容端点）| deepseek（DeepSeek 官方 API）
+    # 大模型平台切换：zhipu（智谱）| zhipu4（智谱 GLM-4 别名）| packycode（PackyAPI，OpenAI 兼容端点）| deepseek（DeepSeek 官方 API）
     # 控制所有"对话/生成"类 LLM 调用：行程生成、JSON 修复、天气建议、意图识别
     LLM_PROVIDER: str = "zhipu"
+
+    # 模型调用超时配置（秒）
+    # LLM_TIMEOUT：对话/生成类 LLM 单次请求超时（build_llm 默认值）
+    # EMBEDDING_TIMEOUT：Embedding 向量化请求超时（zai SDK）
+    LLM_TIMEOUT: float = 60.0
+    EMBEDDING_TIMEOUT: float = 30.0
 
     # 智谱大模型 API（平台一）
     ZHIPU_API_KEY: str = ""
@@ -51,10 +57,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_llm_provider(self):
-        """LLM_PROVIDER 仅允许 zhipu / packycode / deepseek。"""
-        if self.LLM_PROVIDER not in ("zhipu", "packycode", "deepseek"):
+        """LLM_PROVIDER 仅允许 zhipu / zhipu4 / packycode / deepseek。"""
+        if self.LLM_PROVIDER not in ("zhipu", "zhipu4", "packycode", "deepseek"):
             raise ValueError(
-                f"LLM_PROVIDER 仅支持 'zhipu' / 'packycode' / 'deepseek'，当前为: {self.LLM_PROVIDER!r}"
+                f"LLM_PROVIDER 仅支持 'zhipu' / 'zhipu4' / 'packycode' / 'deepseek'，当前为: {self.LLM_PROVIDER!r}"
             )
         return self
 
@@ -134,8 +140,9 @@ def get_active_llm_config() -> dict:
             "base_url": settings.DEEPSEEK_BASE_URL.rstrip("/"),
             "api_key": settings.DEEPSEEK_API_KEY,
         }
+    # zhipu / zhipu4 均指向智谱平台（同一组 ZHIPU_* 配置）
     return {
-        "provider": "zhipu",
+        "provider": settings.LLM_PROVIDER,
         "model": settings.ZHIPU_MODEL,
         "base_url": settings.LLM_BASE_URL.rstrip("/"),
         "api_key": settings.ZHIPU_API_KEY,

@@ -249,7 +249,10 @@ class QueryExpander:
         if self._embedding_client is None:
             try:
                 from zai import ZhipuAiClient
-                self._embedding_client = ZhipuAiClient(api_key=settings.EMBEDDING_API_KEY)
+                self._embedding_client = ZhipuAiClient(
+                    api_key=settings.EMBEDDING_API_KEY,
+                    timeout=settings.EMBEDDING_TIMEOUT,
+                )
                 self._initialized = True
                 self._precompute_embeddings()
             except ImportError:
@@ -715,7 +718,10 @@ class Retriever:
         """获取查询向量（维度与入库一致，见 VectorDBService.EMBEDDING_DIMENSION）"""
         try:
             from zai import ZhipuAiClient
-            client = ZhipuAiClient(api_key=settings.EMBEDDING_API_KEY)
+            client = ZhipuAiClient(
+                api_key=settings.EMBEDDING_API_KEY,
+                timeout=settings.EMBEDDING_TIMEOUT,
+            )
             response = client.embeddings.create(
                 model=settings.EMBEDDING_MODEL,
                 input=[query],
