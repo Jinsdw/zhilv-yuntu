@@ -46,6 +46,11 @@ class PlannerState(TypedDict, total=False):
     draft: Any
     repair_attempts: int
 
+    # 高德补数据（amap_backfill 节点）：已执行轮次与状态
+    # status: complete | skipped | fetch_failed | repair_failed | still_incomplete
+    backfill_rounds: int
+    backfill_status: str
+
     # 用于在节点间传递 LLM 单次调用的原始回复
     # （LangGraph 节点应尽量返回纯 dict，而非 BaseModel，以避免序列化坑）
     validation_warnings: Annotated[list[str], add]

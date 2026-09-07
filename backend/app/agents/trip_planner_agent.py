@@ -248,7 +248,7 @@ class DraftItinerary(BaseModel):
 SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约束与候选POI数据，生成可执行的多日行程。
 
 硬性规则：
-1. 当用户消息附带【候选POI】时，景点、餐厅、酒店必须从候选列表中选择，并输出对应的 place_id。不得使用候选列表外的地点。
+1. 当用户消息附带【候选POI】时，景点、餐厅、酒店优先从候选列表中选择，并输出对应的 place_id。若某类候选缺失（如候选列表没有酒店/餐饮/景点），对应字段可省略或 place_id 留空（null），系统会自动从高德补充；严禁编造候选列表外或真实不存在的地点。
 2. 若用户消息已附带【攻略上下文】，优先使用，可少调或不调工具。
 3. 最终回复必须是单个 JSON 对象（不要 Markdown 说明），字段如下：
 {
@@ -318,7 +318,7 @@ SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约�
   "recommended_shopping": []
 }
 4. days 数量必须等于用户行程天数；每日景点数量不少于 2 个且不超过 max_places_per_day，尽量排满上午、下午时段。
-5. 每日必须包含 lunch、dinner 和 hotel（不需要 breakfast）。
+5. 每日尽量包含 lunch、dinner 和 hotel（不需要 breakfast）；若对应候选缺失，可留空（字段为 null 或省略 place_id），由系统后续补充，不要编造。
 6. 同一天的景点必须属于同一区域分组（district/cluster），不可跨区域安排。
 7. 餐厅优先选择当天景点所在区域的候选。
 8. 遵守偏好关键词与排除关键词。同行状态（特殊需求）是硬性约束，必须逐条满足，并将落实方式写入 special_needs_notes：
@@ -406,10 +406,10 @@ def build_user_prompt(
         lines.append("排除关键词：" + "、".join(request.excluded_keywords))
 
     # ---- 分类候选池输出（B类动态城市新路径） ----
-    if candidate_sections and candidate_sections.get("scenic"):
+    if candidate_sections and any(candidate_sections.get(k) for k in ("scenic", "food", "hotel")):
         lines.append("")
         lines.append("【候选POI】")
-        lines.append("以下为高德真实POI数据，你必须从中选择地点并输出对应 place_id，禁止使用列表外地点。")
+        lines.append("以下为高德真实POI数据，请从中选择地点并输出对应 place_id；若某类候选缺失（如无酒店/餐饮/景点候选），对应字段可留空（place_id 为 null），系统会自动补充，禁止编造列表外地点。")
         lines.append("")
 
         # 景点（按区域分组）
@@ -480,7 +480,7 @@ def build_user_prompt(
         lines.append("1. 每日格式：上午景点 → 午餐 → 下午景点 → 晚餐 → 酒店（不需要早餐）")
         lines.append("2. 景点必须引用候选列表中的 place_id，同一天的景点必须在同一区域分组内；每天至少 2 个景点，尽量安排 3 个或更多，把上午和下午时段都用上。")
         lines.append("3. 餐厅优先选当天景点所在区域的候选")
-        lines.append("4. 每日必须包含 lunch、dinner 和 hotel，且都需输出 place_id")
+        lines.append("4. 每日尽量包含 lunch、dinner 和 hotel 并输出 place_id；若候选缺失对应类别，字段可留空（place_id 为 null），系统会自动补充")
         lines.append("5. 多日行程时，每天选择不同区域的景点，保证多样性")
         lines.append("")
     elif candidate_places:
@@ -533,6 +533,54 @@ def extract_json_object(text: str) -> dict:
     if not isinstance(data, dict):
         raise PlannerParseError("JSON 根节点必须是对象")
     return data
+
+
+def analyze_draft_missing(
+    draft: DraftItinerary,
+    request: TripRequest,
+    candidate_index: Optional[dict[str, Any]] = None,
+) -> dict:
+    """分析草案缺失项，判断需要补拉的 POI 类别。
+
+    Args:
+        draft: LLM 输出并经校验后的草案
+        request: 原始请求（用于取行程天数）
+        candidate_index: place_id → 候选 dict 的索引；为空时视为非 POI 驱动路径，
+            只按"字段是否缺失"判断，不做 place_id 合法性校验
+
+    Returns:
+        {
+            "needs_fetch": bool,
+            "categories": ["scenic" | "food" | "hotel", ...],
+            "details": [缺失描述, ...],
+        }
+    """
+    idx = candidate_index or {}
+    needs: dict[str, bool] = {"scenic": False, "food": False, "hotel": False}
+    details: list[str] = []
+
+    for day in draft.days:
+        if len(day.items) < MIN_PLACES_PER_DAY:
+            needs["scenic"] = True
+            details.append(f"第{day.day_number}天景点不足{MIN_PLACES_PER_DAY}个")
+        for it in day.items:
+            if not it.place_id or (idx and it.place_id not in idx):
+                needs["scenic"] = True
+                details.append(f"第{day.day_number}天[{it.name}]缺少有效 place_id")
+                break
+        for label, meal in (("午餐", day.lunch), ("晚餐", day.dinner)):
+            if meal is None or not meal.place_id or (idx and meal.place_id not in idx):
+                needs["food"] = True
+                details.append(f"第{day.day_number}天{label}缺失")
+        if day.hotel is None or not day.hotel.place_id or (idx and day.hotel.place_id not in idx):
+            needs["hotel"] = True
+            details.append(f"第{day.day_number}天酒店缺失")
+
+    return {
+        "needs_fetch": any(needs.values()),
+        "categories": [c for c in ("scenic", "food", "hotel") if needs[c]],
+        "details": details,
+    }
 
 
 def _parse_time_minutes(t: str) -> int:
@@ -1420,7 +1468,11 @@ class TripPlannerAgent:
                 pool = suitable + others
                 return pool[0] if pool else None
 
-            if food_pool and not day.lunch:
+            if food_pool and (
+                day.lunch is None
+                or not day.lunch.place_id
+                or (idx_map and day.lunch.place_id not in idx_map)
+            ):
                 used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
                 best = _pick_best_food(used_pids)
                 if best:
@@ -1432,7 +1484,11 @@ class TripPlannerAgent:
                     )
                     used_pids.add(best.get("place_id", ""))
                     warnings.append(f"第{i}天午餐缺失，已自动补选: {best.get('name')}")
-            if food_pool and not day.dinner:
+            if food_pool and (
+                day.dinner is None
+                or not day.dinner.place_id
+                or (idx_map and day.dinner.place_id not in idx_map)
+            ):
                 used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
                 best = _pick_best_food(used_pids)
                 if best:
@@ -1444,7 +1500,11 @@ class TripPlannerAgent:
                     )
                     warnings.append(f"第{i}天晚餐缺失，已自动补选: {best.get('name')}")
 
-            if hotel_pool and not day.hotel:
+            if hotel_pool and (
+                day.hotel is None
+                or not day.hotel.place_id
+                or (idx_map and day.hotel.place_id not in idx_map)
+            ):
                 # 优先选择符合特殊需求的酒店
                 suitable_hotels = []
                 other_hotels = []

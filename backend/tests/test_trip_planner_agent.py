@@ -240,6 +240,27 @@ class TestPrompt:
         assert "攻略片段ABC" in text
         assert str(req.max_places_per_day) in text
 
+    def test_build_user_prompt_partial_candidate_sections(self):
+        """只有餐饮候选、无景点候选时，也应输出候选段并允许留空。"""
+        req = _make_request()
+        sections = {
+            "scenic": [],
+            "food": [{"place_id": "f1", "name": "火锅店", "cost": 80, "district": "武侯区"}],
+            "hotel": [],
+            "clusters": {},
+            "index": {"f1": {"place_id": "f1", "name": "火锅店"}},
+        }
+        text = build_user_prompt(req, candidate_sections=sections)
+        assert "【候选POI】" in text
+        assert "火锅店" in text
+        assert "系统会自动补充" in text
+
+    def test_build_user_prompt_all_categories_empty_skips_section(self):
+        req = _make_request()
+        sections = {"scenic": [], "food": [], "hotel": [], "clusters": {}, "index": {}}
+        text = build_user_prompt(req, candidate_sections=sections)
+        assert "【候选POI】" not in text
+
 
 class TestExtractJson:
     def test_plain_json(self):

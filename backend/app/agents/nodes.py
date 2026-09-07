@@ -41,6 +41,7 @@ from app.agents.trip_planner_agent import (
     PlannerError,
     PlannerParseError,
     SYSTEM_PROMPT,
+    analyze_draft_missing,
     build_user_prompt,
     extract_json_object,
 )
@@ -341,6 +342,222 @@ def validate_repair_node(state: PlannerState) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 5.5 高德补数据（校验缺失 → 单独拉取对应类别池 → 回填，最多 2 轮）
+# ---------------------------------------------------------------------------
+
+MAX_BACKFILL_ROUNDS = 2
+
+# 高德 POI 类型码：与 place_candidate_service 保持一致
+_CATEGORY_AMAP_TYPES = {
+    "scenic": "110000",  # 风景名胜
+    "food": "050000",  # 餐饮服务
+    "hotel": "100000",  # 住宿服务
+}
+
+
+def _search_poi_sync(
+    map_service: Any,
+    *,
+    keywords: str,
+    city: str,
+    types: str,
+    page: int,
+) -> Any:
+    """同步包装 map_service.search_poi（节点是同步执行，事件循环中则放弃）。"""
+    import asyncio
+
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is not None:
+        return None
+    return asyncio.run(
+        map_service.search_poi(
+            keywords=keywords,
+            city=city,
+            citylimit=True,
+            types=types,
+            page=page,
+            page_size=20,
+        )
+    )
+
+
+def _fetch_backfill_candidates(
+    request: Any, categories: list[str], *, round_no: int = 1
+) -> dict[str, list[dict]]:
+    """按缺失类别单独拉高德 POI，返回 {category: [候选 dict]}。"""
+    from app.services.map_service import get_map_service
+    from app.services.place_candidate_service import poi_to_candidate
+
+    ms = get_map_service()
+    if ms is None:
+        return {}
+    city = (request.destination or "").strip()
+    if not city:
+        return {}
+
+    result: dict[str, list[dict]] = {"scenic": [], "food": [], "hotel": []}
+    for cat in categories:
+        types = _CATEGORY_AMAP_TYPES.get(cat)
+        if not types:
+            continue
+        page = min(round_no, 2)
+        keywords = f"{city} 热门" if (round_no > 1 and cat == "scenic") else city
+        search = _search_poi_sync(
+            ms, keywords=keywords, city=city, types=types, page=page
+        )
+        if search is None or not search.pois:
+            continue
+        for poi in search.pois[:15]:
+            cand = poi_to_candidate(poi)
+            if cand is None:
+                continue
+            result[cat].append(cand.to_prompt_dict())
+    return result
+
+
+def _merge_backfill_pool(
+    existing: list[dict],
+    new_items: list[dict],
+    index: dict[str, Any],
+    clusters: dict[str, list[str]],
+) -> tuple[list[dict], dict[str, Any], dict[str, list[str]]]:
+    """把新拉取的候选并入对应池与索引（按 place_id 去重）。"""
+    seen = {p.get("place_id") for p in existing if isinstance(p, dict)}
+    for p in new_items:
+        pid = p.get("place_id")
+        if not pid or pid in seen:
+            continue
+        existing.append(p)
+        seen.add(pid)
+        index[pid] = p
+        if p.get("category") == "景点":
+            district = p.get("district") or "其他"
+            clusters.setdefault(district, []).append(pid)
+    return existing, index, clusters
+
+
+def amap_backfill_node(state: PlannerState) -> dict:
+    """模型输出后补数据：校验缺失 → 拉高德对应类别 → 回填（最多 2 轮）。
+
+    仅在 POI 驱动路径（state 已传入 candidate_sections）生效；
+    拉取失败或轮次耗尽仍继续进入下一流程（build_trip），不阻断。
+    """
+    from app.agents.trip_planner_agent import TripPlannerAgent
+
+    meta = _ensure_meta(state)
+    draft = state.get("draft")
+    request = state.get("request")
+
+    # 非 POI 驱动路径（沉淀城市 RAG 等）不做高德补数据
+    if not state.get("candidate_sections"):
+        meta["backfill_status"] = "skipped"
+        return {"meta": meta}
+    if draft is None or request is None:
+        meta["backfill_status"] = "skipped"
+        return {"meta": meta}
+
+    agent = TripPlannerAgent.__new__(TripPlannerAgent)
+    agent._rag_tool = default_rag_tool
+    agent._auto_client = False
+    agent._client = None
+    agent.model = "graph"
+    agent.max_tool_rounds = 0
+    agent.temperature = 0.0
+    agent.max_tokens = 0
+
+    candidate_index = state.get("candidate_index") or {}
+    district_clusters = state.get("district_clusters") or {}
+    scenic_candidates = state.get("scenic_candidates") or []
+    food_candidates = state.get("food_candidates") or []
+    hotel_candidates = state.get("hotel_candidates") or []
+
+    backfill_warnings: list[str] = []
+    missing = analyze_draft_missing(draft, request, candidate_index)
+    if not missing["needs_fetch"]:
+        meta.update(
+            backfill_status="complete",
+            backfill_rounds=0,
+            backfill_warnings=[],
+            backfill_details=[],
+        )
+        return {"meta": meta}
+
+    status = "still_incomplete"
+    rounds_done = 0
+    for round_no in range(1, MAX_BACKFILL_ROUNDS + 1):
+        missing = analyze_draft_missing(draft, request, candidate_index)
+        if not missing["needs_fetch"]:
+            status = "complete"
+            break
+        rounds_done = round_no
+
+        try:
+            fetched = _fetch_backfill_candidates(
+                request, missing["categories"], round_no=round_no
+            )
+        except Exception as exc:
+            logger.warning(f"amap_backfill 拉取失败(第{round_no}轮): {exc}")
+            backfill_warnings.append(f"第{round_no}轮高德拉取失败: {exc}")
+            status = "fetch_failed"
+            break
+        if not fetched or not any(fetched.values()):
+            backfill_warnings.append(
+                f"第{round_no}轮高德无可用数据: {missing['categories']}"
+            )
+            status = "fetch_failed"
+            break
+
+        if fetched.get("food"):
+            food_candidates, candidate_index, district_clusters = _merge_backfill_pool(
+                food_candidates, fetched["food"], candidate_index, district_clusters
+            )
+        if fetched.get("hotel"):
+            hotel_candidates, candidate_index, district_clusters = _merge_backfill_pool(
+                hotel_candidates, fetched["hotel"], candidate_index, district_clusters
+            )
+        if fetched.get("scenic"):
+            scenic_candidates, candidate_index, district_clusters = _merge_backfill_pool(
+                scenic_candidates, fetched["scenic"], candidate_index, district_clusters
+            )
+
+        try:
+            draft, warnings = agent.validate_and_repair(
+                draft,
+                request,
+                candidate_index=candidate_index,
+                district_clusters=district_clusters,
+                food_candidates=food_candidates,
+                hotel_candidates=hotel_candidates,
+            )
+        except Exception as exc:
+            logger.warning(f"amap_backfill 回填失败(第{round_no}轮): {exc}")
+            backfill_warnings.append(f"第{round_no}轮回填失败: {exc}")
+            status = "repair_failed"
+            break
+        backfill_warnings.extend(warnings)
+        status = "still_incomplete" if round_no < MAX_BACKFILL_ROUNDS else "incomplete_after_rounds"
+
+    meta.update(
+        backfill_status=status,
+        backfill_rounds=rounds_done,
+        backfill_warnings=backfill_warnings,
+        backfill_details=analyze_draft_missing(draft, request, candidate_index)["details"],
+    )
+    return {
+        "draft": draft,
+        "scenic_candidates": scenic_candidates,
+        "food_candidates": food_candidates,
+        "hotel_candidates": hotel_candidates,
+        "candidate_index": candidate_index,
+        "district_clusters": district_clusters,
+        "meta": meta,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 6. Draft → TripResponse
 # ---------------------------------------------------------------------------
 
@@ -494,15 +711,15 @@ def route_after_parse(state: PlannerState) -> str:
 def route_after_validate(state: PlannerState) -> str:
     """
     校验后：
-    - 无 error → "build_trip"
+    - 无 error → "backfill"（进高德补数据，随后进 build_trip）
     - 有 error 且 allow_fallback → "fallback"
-    - 有 error 且不允许 fallback → "build_trip"（让下游也尝试用原 draft）
+    - 有 error 且不允许 fallback → "backfill"（让下游也尝试用原 draft）
     """
     if not state.get("error"):
-        return "build_trip"
+        return "backfill"
     if state.get("allow_fallback", True):
         return "fallback"
-    return "build_trip"
+    return "backfill"
 
 
 def route_after_build(state: PlannerState) -> str:

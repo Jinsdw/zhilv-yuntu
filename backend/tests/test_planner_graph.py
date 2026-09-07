@@ -23,6 +23,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from app.agents import planner_graph
 from app.agents.nodes import (
+    amap_backfill_node,
     build_trip_node,
     enrich_budget_node,
     fallback_node,
@@ -39,6 +40,7 @@ from app.agents.nodes import (
 from app.agents.rag_tool import RAGToolResult, RAGQueryInfo, RAGToolStats
 from app.agents.state import PlannerState
 from app.agents.trip_planner_agent import (
+    analyze_draft_missing,
     DraftDay,
     DraftItem,
     DraftItinerary,
@@ -262,13 +264,13 @@ class TestRouters:
         assert route_after_parse(state) == "fallback"
 
     def test_route_after_validate_ok(self):
-        assert route_after_validate({"error": None}) == "build_trip"
+        assert route_after_validate({"error": None}) == "backfill"
 
     def test_route_after_validate_error_allow_fallback(self):
         assert route_after_validate({"error": "x", "allow_fallback": True}) == "fallback"
 
     def test_route_after_validate_error_no_fallback(self):
-        assert route_after_validate({"error": "x", "allow_fallback": False}) == "build_trip"
+        assert route_after_validate({"error": "x", "allow_fallback": False}) == "backfill"
 
     def test_route_after_build_ok(self):
         assert route_after_build({"error": None}) == "enrich"
@@ -356,6 +358,131 @@ class TestValidateRepairNode:
         state = _make_state(draft=None)
         out = validate_repair_node(state)
         assert out.get("error") is not None
+
+
+class TestAnalyzeDraftMissing:
+    def _draft(self, **day_kwargs) -> DraftItinerary:
+        day = DraftDay(
+            day_number=1,
+            items=[
+                DraftItem(name="景点A", place_id="s1", start_time="09:00", end_time="11:00"),
+                DraftItem(name="景点B", place_id="s2", start_time="14:00", end_time="16:30"),
+            ],
+            lunch=DraftMeal(name="午餐", place_id="f1"),
+            dinner=DraftMeal(name="晚餐", place_id="f2"),
+            hotel=DraftHotel(name="酒店", place_id="h1"),
+        )
+        for key, value in day_kwargs.items():
+            setattr(day, key, value)
+        return DraftItinerary(days=[day])
+
+    def test_complete_draft_no_missing(self):
+        idx = {"s1": {}, "s2": {}, "f1": {}, "f2": {}, "h1": {}}
+        missing = analyze_draft_missing(self._draft(), _make_request(days=1), idx)
+        assert missing["needs_fetch"] is False
+        assert missing["categories"] == []
+
+    def test_missing_hotel(self):
+        missing = analyze_draft_missing(
+            self._draft(hotel=None), _make_request(days=1), {}
+        )
+        assert missing["needs_fetch"] is True
+        assert missing["categories"] == ["hotel"]
+
+    def test_missing_meals(self):
+        missing = analyze_draft_missing(
+            self._draft(lunch=None, dinner=None), _make_request(days=1), {}
+        )
+        assert missing["needs_fetch"] is True
+        assert missing["categories"] == ["food"]
+
+    def test_insufficient_scenic(self):
+        day = self._draft().days[0]
+        day.items = [day.items[0]]
+        missing = analyze_draft_missing(
+            DraftItinerary(days=[day]), _make_request(days=1), {}
+        )
+        assert missing["needs_fetch"] is True
+        assert missing["categories"] == ["scenic"]
+
+    def test_invalid_place_id_flagged_with_index(self):
+        day = self._draft().days[0]
+        day.items[0].place_id = "not-in-index"
+        missing = analyze_draft_missing(
+            DraftItinerary(days=[day]), _make_request(days=1), {"s2": {}, "f1": {}, "f2": {}, "h1": {}}
+        )
+        assert missing["needs_fetch"] is True
+        assert "scenic" in missing["categories"]
+
+
+class TestAmapBackfillNode:
+    def _complete_state(self) -> dict:
+        index = {"s1": {}, "s2": {}, "f1": {}, "f2": {}, "h1": {}}
+        day = DraftDay(
+            day_number=1,
+            items=[
+                DraftItem(name="景点A", place_id="s1", start_time="09:00", end_time="11:00"),
+                DraftItem(name="景点B", place_id="s2", start_time="14:00", end_time="16:30"),
+            ],
+            lunch=DraftMeal(name="午餐", place_id="f1"),
+            dinner=DraftMeal(name="晚餐", place_id="f2"),
+            hotel=DraftHotel(name="酒店", place_id="h1"),
+        )
+        draft = DraftItinerary(days=[day])
+        return _make_state(
+            request=_make_request(days=1),
+            draft=draft,
+            candidate_sections={"scenic": [], "food": [], "hotel": [], "clusters": {}, "index": {}},
+            candidate_index=index,
+            food_candidates=[],
+            hotel_candidates=[],
+        )
+
+    def test_skipped_without_candidate_sections(self):
+        state = _make_state(draft=DraftItinerary(days=[]))
+        with patch("app.agents.nodes._fetch_backfill_candidates", side_effect=AssertionError("不应拉取")):
+            out = amap_backfill_node(state)
+        assert out["meta"]["backfill_status"] == "skipped"
+
+    def test_complete_no_fetch(self):
+        state = self._complete_state()
+        with patch("app.agents.nodes._fetch_backfill_candidates", side_effect=AssertionError("不应拉取")):
+            out = amap_backfill_node(state)
+        assert out["meta"]["backfill_status"] == "complete"
+        assert out["meta"]["backfill_rounds"] == 0
+        assert "draft" not in out
+
+    def test_backfill_fills_missing_hotel(self):
+        state = self._complete_state()
+        state["draft"].days[0].hotel = None
+        fetched = {"scenic": [], "food": [], "hotel": [{"place_id": "h9", "name": "补拉酒店", "cost": 300, "rating": 4.5}]}
+        with patch("app.agents.nodes._fetch_backfill_candidates", return_value=fetched):
+            out = amap_backfill_node(state)
+        day = out["draft"].days[0]
+        assert day.hotel is not None and day.hotel.place_id == "h9"
+        assert out["meta"]["backfill_status"] == "complete"
+        assert out["meta"]["backfill_rounds"] == 1
+        assert out["candidate_index"].get("h9") is not None
+
+    def test_fetch_failed_continues_to_next_flow(self):
+        state = self._complete_state()
+        state["draft"].days[0].hotel = None
+        with patch("app.agents.nodes._fetch_backfill_candidates", return_value={}):
+            out = amap_backfill_node(state)
+        assert out["meta"]["backfill_status"] == "fetch_failed"
+        assert out.get("error") is None
+        assert out["draft"].days[0].hotel is None  # 拉不到就不补，继续下一流程
+
+    def test_incomplete_after_two_rounds(self):
+        state = self._complete_state()
+        state["draft"].days[0].hotel = None
+        # 两轮都拉回无效数据（无 place_id），无法回填 → 轮次耗尽仍继续
+        fetched = {"scenic": [], "food": [], "hotel": [{"name": "无ID酒店", "cost": 300}]}
+        with patch("app.agents.nodes._fetch_backfill_candidates", return_value=fetched):
+            out = amap_backfill_node(state)
+        assert out["meta"]["backfill_status"] == "incomplete_after_rounds"
+        assert out["meta"]["backfill_rounds"] == 2
+        assert out.get("error") is None
 
 
 class TestBuildTripNode:

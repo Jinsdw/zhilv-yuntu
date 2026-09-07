@@ -6,7 +6,7 @@
                                 ↓
                             parse_draft → (repair_json) → validate_repair
                                                             ↓
-                                                       build_trip → enrich_budget → END
+                                          amap_backfill → build_trip → enrich_budget → END
                             ↓（任意步骤失败且允许 fallback）
                         fallback → END
 
@@ -23,6 +23,7 @@ from typing import Optional
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.nodes import (
+    amap_backfill_node,
     build_edit_day_input_node,
     build_trip_node,
     enrich_budget_node,
@@ -66,6 +67,7 @@ def build_planner_graph(rag_tool: Optional[RAGTool] = None):
     g.add_node("parse_draft", parse_draft_node)
     g.add_node("repair_json", repair_json_node)
     g.add_node("validate_repair", validate_repair_node)
+    g.add_node("amap_backfill", amap_backfill_node)
     g.add_node("build_trip", build_trip_node)
     g.add_node("enrich_budget", enrich_budget_node)
     g.add_node("fallback", fallback_node)
@@ -99,15 +101,16 @@ def build_planner_graph(rag_tool: Optional[RAGTool] = None):
     # 修复后强制回到 parse_draft 再解析一次
     g.add_edge("repair_json", "parse_draft")
 
-    # 校验后路由
+    # 校验后路由：无 error → 高德补数据 → build_trip
     g.add_conditional_edges(
         "validate_repair",
         route_after_validate,
         {
-            "build_trip": "build_trip",
+            "backfill": "amap_backfill",
             "fallback": "fallback",
         },
     )
+    g.add_edge("amap_backfill", "build_trip")
 
     # build_trip 后路由
     g.add_conditional_edges(
