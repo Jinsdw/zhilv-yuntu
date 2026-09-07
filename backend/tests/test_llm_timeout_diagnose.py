@@ -16,8 +16,9 @@ openai APITimeoutError。单次超时阈值来自 build_llm() 的 timeout=60（l
   E. 强制短超时复现（可选，--force-timeout）：确认错误类型/文案与生产日志一致
 
 更换模型 / 端点 / Key
---------------------
-两种方式（命令行参数优先级最高，其次文件顶部"手动填写区"，最后回落到项目 .env）：
+---------------------
+默认使用项目 .env 中 LLM_PROVIDER 对应的配置（zhipu / packycode / deepseek）；
+两种方式可覆盖（命令行参数优先级最高，其次文件顶部"手动填写区"）：
   1. 直接编辑本文件顶部【手动填写区】的 DIAG_MODEL / DIAG_BASE_URL / DIAG_API_KEY
   2. 命令行传参：
      python tests/test_llm_timeout_diagnose.py ^
@@ -52,12 +53,12 @@ from unittest.mock import patch
 from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
-# 【手动填写区】更换模型/端点/Key 时在这里改（留空则回落项目 .env）
+# 【手动填写区】更换模型/端点/Key 时在这里改（默认留空，使用 .env 中当前 LLM_PROVIDER 对应配置）
 #   优先级：命令行参数 --model/--base-url/--api-key > 下方字段 > .env
 # ---------------------------------------------------------------------------
-DIAG_MODEL: str = "deepseek-v4-flash"      # 模型名称，如 "glm-4.6v-FlashX"；留空用 .env 的 ZHIPU_MODEL
-DIAG_BASE_URL: str = "https://www.packyapi.com/v1"   # 模型地址(OpenAI 兼容端点)，如 "https://open.bigmodel.cn/api/paas/v4"；留空用 .env 的 LLM_BASE_URL
-DIAG_API_KEY: str = "sk-mHoccUqS4AjHmkN8iRQiWRuZwyaBWHz1Pd3eIebVt0Zm1qzH"    # API Key；留空用 .env 的 ZHIPU_API_KEY
+DIAG_MODEL: str = ""      # 模型名称，如 "glm-4.6v-FlashX" / "deepseek-chat"；留空用 .env 当前平台的模型
+DIAG_BASE_URL: str = ""   # OpenAI 兼容端点，如 "https://open.bigmodel.cn/api/paas/v4"；留空用 .env 当前平台的端点
+DIAG_API_KEY: str = ""    # API Key；留空用 .env 当前平台的 Key
 # ---------------------------------------------------------------------------
 
 # 解析后的诊断配置（main 里赋值，各阶段共用）
@@ -632,6 +633,10 @@ def _resolve_config(args: argparse.Namespace) -> None:
         settings.PACKY_MODEL = model
         settings.PACKY_BASE_URL = base_url
         settings.PACKY_API_KEY = api_key
+    elif settings.LLM_PROVIDER == "deepseek":
+        settings.DEEPSEEK_MODEL = model
+        settings.DEEPSEEK_BASE_URL = base_url
+        settings.DEEPSEEK_API_KEY = api_key
     else:
         settings.ZHIPU_MODEL = model
         settings.LLM_BASE_URL = base_url

@@ -7,6 +7,7 @@
 平台由 .env 的 LLM_PROVIDER 切换（config.get_active_llm_config）：
 - zhipu（智谱）：https://open.bigmodel.cn/api/paas/v4
 - packycode：https://www.packyapi.com/v1
+- deepseek（DeepSeek 官方 API）：https://api.deepseek.com/v1
 """
 
 from __future__ import annotations

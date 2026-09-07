@@ -108,7 +108,7 @@ class IntentDetector:
         self._initialized = False
 
     def _get_client(self):
-        """获取 LLM 客户端（跟随 LLM_PROVIDER 配置：zhipu / packycode）"""
+        """获取 LLM 客户端（跟随 LLM_PROVIDER 配置：zhipu / packycode / deepseek）"""
         if self._client is None:
             try:
                 from app.agents.llm_factory import build_llm

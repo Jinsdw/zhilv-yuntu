@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     AMAP_API_KEY: str = ""
     AMAP_JS_API_KEY: str = ""
 
-    # 大模型平台切换：zhipu（智谱）| packycode（PackyAPI，OpenAI 兼容端点）
+    # 大模型平台切换：zhipu（智谱）| packycode（PackyAPI，OpenAI 兼容端点）| deepseek（DeepSeek 官方 API）
     # 控制所有"对话/生成"类 LLM 调用：行程生成、JSON 修复、天气建议、意图识别
     LLM_PROVIDER: str = "zhipu"
 
@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     PACKY_MODEL: str = "deepseek-v4-flash"
     PACKY_BASE_URL: str = "https://www.packyapi.com/v1"
 
+    # DeepSeek 官方 API（平台三，OpenAI 兼容端点）
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_MODEL: str = "deepseek-chat"
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
+
     # Embedding 配置（从 .env / 环境变量读取；默认 API key 复用 ZHIPU_API_KEY）
     EMBEDDING_MODEL: str = "embedding-3"
     EMBEDDING_API_KEY: str = ""
@@ -46,10 +51,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_llm_provider(self):
-        """LLM_PROVIDER 仅允许 zhipu / packycode。"""
-        if self.LLM_PROVIDER not in ("zhipu", "packycode"):
+        """LLM_PROVIDER 仅允许 zhipu / packycode / deepseek。"""
+        if self.LLM_PROVIDER not in ("zhipu", "packycode", "deepseek"):
             raise ValueError(
-                f"LLM_PROVIDER 仅支持 'zhipu' 或 'packycode'，当前为: {self.LLM_PROVIDER!r}"
+                f"LLM_PROVIDER 仅支持 'zhipu' / 'packycode' / 'deepseek'，当前为: {self.LLM_PROVIDER!r}"
             )
         return self
 
@@ -122,6 +127,13 @@ def get_active_llm_config() -> dict:
             "base_url": settings.PACKY_BASE_URL.rstrip("/"),
             "api_key": settings.PACKY_API_KEY,
         }
+    if settings.LLM_PROVIDER == "deepseek":
+        return {
+            "provider": "deepseek",
+            "model": settings.DEEPSEEK_MODEL,
+            "base_url": settings.DEEPSEEK_BASE_URL.rstrip("/"),
+            "api_key": settings.DEEPSEEK_API_KEY,
+        }
     return {
         "provider": "zhipu",
         "model": settings.ZHIPU_MODEL,
@@ -160,6 +172,8 @@ logger.add(
 REQUIRED_KEYS = {"AMAP_API_KEY": "高德地图 API Key"}
 if settings.LLM_PROVIDER == "packycode":
     REQUIRED_KEYS["PACKY_API_KEY"] = "packycode API Key"
+elif settings.LLM_PROVIDER == "deepseek":
+    REQUIRED_KEYS["DEEPSEEK_API_KEY"] = "DeepSeek API Key"
 else:
     REQUIRED_KEYS["ZHIPU_API_KEY"] = "智谱大模型 API Key"
 
