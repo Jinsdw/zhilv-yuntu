@@ -17,7 +17,12 @@ from loguru import logger
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.agents.llm_factory import log_llm_invocation
+from app.agents.llm_factory import (
+    get_llm_thinking_config,
+    log_llm_invocation,
+    log_llm_reasoning_from_message,
+    log_llm_request,
+)
 from app.config import settings
 from app.rag.guide_catalog import guide_catalog
 from app.rag.vector_db import vector_db_service, hybrid_search_engine
@@ -144,12 +149,20 @@ class IntentDetector:
 
         try:
             log_llm_invocation()
-            response = self._client.invoke(
-                [
-                    SystemMessage(content=self.SYSTEM_PROMPT),
-                    HumanMessage(content=self.USER_PROMPT_TEMPLATE.format(query=query)),
-                ]
+            messages = [
+                SystemMessage(content=self.SYSTEM_PROMPT),
+                HumanMessage(content=self.USER_PROMPT_TEMPLATE.format(query=query)),
+            ]
+            log_llm_request(
+                messages=messages,
+                note="intent_detect",
+                temperature=0.1,
+                max_tokens=1500,
+                streaming=False,
+                thinking=get_llm_thinking_config(),
             )
+            response = self._client.invoke(messages)
+            log_llm_reasoning_from_message(response, note="intent_detect")
 
             content = (response.content or "").strip()
 

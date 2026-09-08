@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     LLM_TIMEOUT: float = 60.0
     EMBEDDING_TIMEOUT: float = 30.0
 
+    # LLM_THINKING_ENABLED：是否开启大模型思考（智谱 thinking）并记录思考过程到日志
+    # 开启后智谱调用会携带 thinking 参数，返回的 reasoning_content（思考过程）会连同入参写入日志；
+    # 若所用模型不支持思考导致报错，可改为 False 关闭。
+    LLM_THINKING_ENABLED: bool = True
+
     # 智谱大模型 API（平台一）
     ZHIPU_API_KEY: str = ""
     ZHIPU_MODEL: str = "glm-4.6v-FlashX"

@@ -35,7 +35,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 from pydantic import BaseModel
 
-from app.agents.llm_factory import build_json_llm, log_llm_invocation
+from app.agents.llm_factory import (
+    build_json_llm,
+    get_llm_thinking_config,
+    log_llm_invocation,
+    log_llm_reasoning_from_message,
+    log_llm_request,
+)
 from app.agents.trip_planner_agent import TripPlannerAgent, trip_planner_agent
 from langchain_core.messages import HumanMessage
 from app.config import settings
@@ -745,7 +751,17 @@ class TripService:
         try:
             llm = self._llm or build_json_llm(temperature=0.3, max_tokens=256)
             log_llm_invocation()
-            resp = llm.invoke([HumanMessage(content=prompt)])
+            messages = [HumanMessage(content=prompt)]
+            log_llm_request(
+                messages=messages,
+                note="weather_suggest",
+                temperature=0.3,
+                max_tokens=256,
+                streaming=False,
+                thinking=get_llm_thinking_config(),
+            )
+            resp = llm.invoke(messages)
+            log_llm_reasoning_from_message(resp, note="weather_suggest")
             content = resp.content if isinstance(resp.content, str) else str(resp.content)
             data = json.loads(_strip_json_fence(content))
             raw = data.get("suggestions", [])

@@ -33,7 +33,14 @@ from typing import Any, Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from loguru import logger
 
-from app.agents.llm_factory import build_json_llm, build_llm, log_llm_invocation
+from app.agents.llm_factory import (
+    build_json_llm,
+    build_llm,
+    get_llm_thinking_config,
+    log_llm_invocation,
+    log_llm_reasoning_from_message,
+    log_llm_request,
+)
 from app.agents.rag_tool import rag_tool as default_rag_tool
 from app.agents.state import PlannerState
 from app.agents.trip_planner_agent import (
@@ -179,19 +186,42 @@ def llm_plan_node(state: PlannerState) -> dict:
     # 智谱 1214 兜底：空 content 的 assistant tool_calls 消息补空格
     messages_for_llm = _sanitize_messages_for_zhipu(messages_for_llm)
 
-    llm = build_llm()
+    # 底层走流式（SSE）：invoke 仍返回完整消息，同时能捕获流式 reasoning_content 写入日志
+    llm = build_llm(streaming=True)
+    tools = None
     if use_tools:
         # 把 LangChain 工具 bind 到 LLM，使其能在回复中产出 tool_calls
         from app.agents.tools import get_default_rag_tools
-        llm = llm.bind_tools(get_default_rag_tools())
+        tools = get_default_rag_tools()
+        llm = llm.bind_tools(tools)
 
     log_llm_invocation()
+    tool_names = [
+        getattr(t, "name", None)
+        or ((t.get("function") or {}).get("name") if isinstance(t, dict) else None)
+        for t in (tools or [])
+    ]
+    model_name = getattr(llm, "model_name", None)
+    temperature = getattr(llm, "temperature", None)
+    max_tokens = getattr(llm, "max_tokens", None)
+    log_llm_request(
+        messages=messages_for_llm,
+        note="plan",
+        model=model_name if isinstance(model_name, str) else None,
+        temperature=temperature if isinstance(temperature, (int, float)) else None,
+        max_tokens=max_tokens if isinstance(max_tokens, int) else None,
+        streaming=True,
+        thinking=get_llm_thinking_config(),
+        tools=tool_names,
+    )
     try:
         ai_msg = llm.invoke(messages_for_llm)
     except Exception as e:
         logger.error(f"llm_plan_node 调用失败: {e}")
         meta["llm_error"] = str(e)
         return {"error": str(e), "meta": meta}
+
+    log_llm_reasoning_from_message(ai_msg, note="plan")
 
     # 累加 tool_rounds：每次回到本节点视作一轮
     if getattr(ai_msg, "tool_calls", None):

@@ -28,7 +28,12 @@ from typing import Any, Optional, Union
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from app.agents.llm_factory import log_llm_invocation
+from app.agents.llm_factory import (
+    get_llm_thinking_config,
+    log_llm_invocation,
+    log_llm_reasoning_from_message,
+    log_llm_request,
+)
 from app.config import get_active_llm_config, settings
 from app.models.schemas import (
     BudgetInfo,
@@ -767,42 +772,52 @@ class TripPlannerAgent:
         if client is None:
             return None
         log_llm_invocation()
+        model = self.model or get_active_llm_config()["model"]
+        messages = [
+            {
+                "role": "system",
+                "content": "你只输出合法 JSON 对象，不要解释。修复用户给出的行程 JSON。",
+            },
+            {
+                "role": "user",
+                "content": f"校验错误：{error}\n\n原始内容：\n{raw_text[:6000]}",
+            },
+        ]
+        log_llm_request(
+            messages=messages,
+            note="repair_json",
+            model=model,
+            temperature=0.0,
+            max_tokens=self.max_tokens,
+            streaming=False,
+            thinking=get_llm_thinking_config(),
+        )
         try:
             # 兼容 LangChain BaseChatModel 与旧版 zai 客户端
             if hasattr(client, "chat") and hasattr(client.chat, "completions"):
                 # 旧版 zai 路径
                 resp = client.chat.completions.create(
-                    model=self.model or get_active_llm_config()["model"],
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "你只输出合法 JSON 对象，不要解释。修复用户给出的行程 JSON。",
-                        },
-                        {
-                            "role": "user",
-                            "content": f"校验错误：{error}\n\n原始内容：\n{raw_text[:6000]}",
-                        },
-                    ],
+                    model=model,
+                    messages=messages,
                     temperature=0.0,
                     max_tokens=self.max_tokens,
                 )
+                log_llm_reasoning_from_message(resp.choices[0].message, note="repair_json")
                 return (resp.choices[0].message.content or "").strip()
             else:
                 # LangChain BaseChatModel 路径
                 from langchain_core.messages import HumanMessage, SystemMessage
 
+                lc_messages = [
+                    SystemMessage(content=messages[0]["content"]),
+                    HumanMessage(content=messages[1]["content"]),
+                ]
                 resp = client.invoke(
-                    [
-                        SystemMessage(
-                            content="你只输出合法 JSON 对象，不要解释。修复用户给出的行程 JSON。"
-                        ),
-                        HumanMessage(
-                            content=f"校验错误：{error}\n\n原始内容：\n{raw_text[:6000]}"
-                        ),
-                    ],
+                    lc_messages,
                     temperature=0.0,
                     max_tokens=self.max_tokens,
                 )
+                log_llm_reasoning_from_message(resp, note="repair_json")
                 content = getattr(resp, "content", "") or ""
                 return content.strip()
         except Exception as e:

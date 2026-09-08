@@ -306,8 +306,9 @@ class TestLlmPlanNode:
         with patch("app.agents.nodes.build_llm", return_value=fake_llm):
             out = llm_plan_node(state)
         assert "messages" in out
-        assert isinstance(out["messages"][0], AIMessage)
-        assert out["messages"][0].content == '{"days":[]}'
+        # 首轮会写回 system/user 前缀，AI 回复在末尾
+        assert isinstance(out["messages"][-1], AIMessage)
+        assert out["messages"][-1].content == '{"days":[]}'
 
     def test_records_error_on_exception(self):
         fake_llm = MagicMock()
