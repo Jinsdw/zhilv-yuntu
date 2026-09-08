@@ -12,26 +12,28 @@
 | 地图可视化 | 高德 JSAPI 展示每日景点标记、驾车路线与信息窗体 |
 | 天气补全 | 高德天气 API 实时天气与未来 4 天预报，生成穿搭/出行建议 |
 | 预算拆分 | 住宿/餐饮/门票/交通/购物/其他六项自动拆分与二次校正 |
-| 智能编辑 | 对已生成行程的某一天进行自然语言编辑 |
 | 行程历史 | SQLite 持久化，分页查询、筛选、排序；明信片墙卡片展示（含封面图片） |
 | 收藏与批量管理 | 单条/批量收藏、批量删除，支持按收藏状态筛选 |
 | 无登录数据隔离 | 浏览器指纹生成稳定设备标识（`X-Device-Id`），历史数据按设备归属隔离，跨设备不可见 |
 | 文档导出 | Markdown / PDF 一键导出（含分类行程贴士与图片嵌入，PDF 渲染失败自动降级） |
 | 多城市分级 | A 级沉淀城市走 RAG，B 级动态城市走高德 POI，C 级（省级等）返回友好错误 |
+| 高德补数据 | 草案生成后自动分析缺失的 POI 类别，从高德拉取数据回填，提升行程完整度 |
+| 坐标与行政区校验 | 拦截越界、异地 POI 坐标（国内边界 / adcode / 城市名匹配），保证点位有效 |
+| 大模型平台切换 | `LLM_PROVIDER` 一键切换智谱 / packycode / DeepSeek，无需改动代码 |
 
 ## 多 Agent 协同
 
 | Agent | 职责 |
 |-------|------|
 | RAG Agent | 本地攻略检索：Query Rewrite + 向量召回 + Cross-encoder Rerank |
-| Trip Planner Agent | 结构化行程生成 + 单日自然语言编辑 + 降级模板兜底 |
+| Trip Planner Agent | 结构化行程生成 + 缺失类别高德补数据 + 降级模板兜底 |
 | Map Agent | 高德地理编码、POI、路线规划、距离矩阵与景点图片 |
 | Weather Agent | 实时天气与预报查询，结合天气给出旅行提示 |
 
 ## 技术栈
 
 - **后端**：FastAPI + LangChain / LangGraph + ChromaDB + Redis（可选）+ SQLite + loguru
-- **模型**：智谱大模型（`glm-4.6v-FlashX` 生成、`text-embedding-v4` 向量、`rerank` 重排，OpenAI 兼容接口）
+- **模型**：生成 LLM 支持多平台切换——智谱（`glm-4.6v-FlashX`）、packycode（`deepseek-v4-flash`）、DeepSeek 官方（`deepseek-chat`），OpenAI 兼容接口；Embedding 走智谱 `text-embedding-v4`；Rerank 为本地模型 `BAAI/bge-reranker-v2-m3`（支持离线加载）
 - **地图 / 天气**：高德地图 Web 服务 API + JavaScript API v2.0
 - **前端**：React 18 + TypeScript + Ant Design 5 + Vite + Axios；「山海拾光」明信片杂志风主题（主色 `#C0472F`，明暗双模式）
 - **部署**：Docker Compose（backend + redis）+ `start.ps1` 管理脚本
@@ -48,7 +50,8 @@ Copy-Item .env.example .env
 
 ```env
 AMAP_API_KEY=你的高德Web服务Key
-ZHIPU_API_KEY=你的智谱Key
+LLM_PROVIDER=zhipu4        # zhipu | zhipu4 | packycode | deepseek
+ZHIPU_API_KEY=你的智谱Key  # 使用 packycode / deepseek 时改为对应平台 Key
 ```
 
 前端地图还需配置 `AMAP_JS_API_KEY` 与 `AMAP_SECURITY_JS_CODE`（JSAPI v2.0 安全密钥，高德控制台获取）。
@@ -83,6 +86,7 @@ npm run dev
 
 - 本地打包：`powershell -ExecutionPolicy Bypass -File .\deploy\package.ps1`（产物在 `deploy/zhilv-yuntu-*.zip`）
 - 服务器后端：`docker compose -f docker-compose.prod.yaml up -d --build backend redis`
+- 离线 Rerank 模型：`deploy/download_reranker.ps1` 一键下载 `BAAI/bge-reranker-v2-m3` 到本地 HF 缓存（服务器无法访问 HuggingFace 时必需）
 - 服务器前端：`cd frontend && npm install && npm run build`（产物 `frontend/dist`）
 - Nginx 站点配置模板：[deploy/zhilv-nginx.conf](deploy/zhilv-nginx.conf)
 
@@ -93,7 +97,6 @@ npm run dev
 | 方法 | 路径 | 说明 | 设备标识 |
 |------|------|------|---------|
 | POST | `/trip/generate` | 生成行程（同步阻塞，线程池执行） | 可选 |
-| POST | `/trip/edit` | 自然语言编辑单日行程 | 必填 |
 | GET | `/trip/history` | 历史列表（分页/目的地/收藏筛选/排序） | 必填 |
 | POST | `/trip/history/batch-delete` | 批量删除历史 | 必填 |
 | POST | `/trip/history/batch-favorite` | 批量收藏 / 取消收藏 | 必填 |
@@ -115,10 +118,10 @@ backend/
     api/deps.py            # 设备标识依赖（可选读取 + 强制校验）
     agents/                # LangGraph 多 Agent（trip_planner_agent、planner_graph、nodes、rag_tool、tools、state、llm_factory）
     rag/                   # RAG（guide_catalog、index_config、retriever、vector_db）
-    services/              # trip_service、storage_service、map_service、weather_service、export_service、cache_service 等
+    services/              # trip_service、storage_service、map_service、amap_geo_service、geo_validation、place_candidate_service、weather_service、export_service、cache_service
     models/                # schemas.py（Pydantic）、db_models.py、init_db.py
-  tests/                   # pytest 测试（22 个文件，mock 外部服务）
-  scripts/ingest_guides.py # 攻略文档入库
+  tests/                   # pytest 测试（26 个文件，mock 外部服务）
+  scripts/                 # ingest_guides.py 攻略入库、clear-cache.ps1 缓存清理
   data/                    # trips.db、chroma_db、guides、exports、backups
 frontend/
   src/
@@ -143,7 +146,7 @@ start.ps1                  # Docker 启动/停止/状态/日志/构建脚本
 
 ```powershell
 cd backend
-pytest tests/ -q          # 全部后端测试（22 个文件，mock 外部服务，不打真实网络）
+pytest tests/ -q          # 全部后端测试（26 个文件，mock 外部服务，不打真实网络）
 
 cd frontend
 npm run type-check        # 前端类型检查
@@ -175,7 +178,8 @@ python scripts/ingest_guides.py --stats        # 查看向量库统计
 ## 项目进度
 
 - 第一至第九阶段（初始化、数据模型、服务层、RAG、Agent、编排、API、前端、测试与文档）已完成
-- 第十阶段（调试与优化）、第十一阶段（部署上线）规划中
+- 第十阶段（调试与优化）大部分完成：RAG 空结果修复、Rerank 本地化、多平台 LLM、高德补数据与坐标校验、LLM 调用日志、缓存清理脚本
+- 第十一阶段（部署上线）完成生产配置、打包与离线模型下载，剩余服务器环境准备按 [deploy/DEPLOY.md](deploy/DEPLOY.md) 执行
 - 详见 [REPLICATION_TASKS.md](REPLICATION_TASKS.md) 与 [.cursor/rules/PROGRESS.md](.cursor/rules/PROGRESS.md)
 
 ## 许可
