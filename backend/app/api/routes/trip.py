@@ -10,8 +10,8 @@
             DatabaseError）冒泡到 app/api/main.py 的全局异常处理器统一转 HTTP 状态码
 
 设计要点：
-    - 路由函数声明为同步 def（非 async def）：trip_service.generate_trip /
-      edit_trip_day 是同步阻塞调用（内部含 LangGraph graph.invoke + SQLite +
+    - 路由函数声明为同步 def（非 async def）：trip_service.generate_trip
+      是同步阻塞调用（内部含 LangGraph graph.invoke + SQLite +
       通过 _run_async 桥接的 amap/weather 异步 IO）。同步 def 会被 FastAPI 丢进
       线程池（run_in_threadpool）执行，避免阻塞事件循环。
     - router 不携带 prefix，由 main.py include 时统一加 /trip，前缀归入口统一管理。
@@ -27,7 +27,6 @@ from app.models.schemas import (
     TripBatchDeleteRequest,
     TripBatchFavoriteRequest,
     TripBatchResult,
-    TripEditRequest,
     TripHistoryListResponse,
     TripRequest,
     TripResponse,
@@ -46,23 +45,6 @@ def generate_trip(
     """生成行程（同步阻塞，走线程池；已持久化并回填 trip_id）。"""
     # 设备指纹标识优先，兼容旧客户端通过 query 传 user_id
     return trip_service.generate_trip(request, user_id=device_id or user_id)
-
-
-@router.post("/edit", response_model=TripResponse, status_code=200)
-def edit_trip(
-    body: TripEditRequest,
-    device_id: str = Depends(require_device_id),
-) -> TripResponse:
-    """编辑行程指定天。行程不存在时由全局处理器返回 404。"""
-    return trip_service.edit_trip_day(
-        body.trip_id,
-        body.day_number,
-        body.instruction,
-        user_id=device_id,
-        context=body.context,
-    )
-
-
 @router.get("/history", response_model=TripHistoryListResponse, status_code=200)
 def list_history(
     device_id: str = Depends(require_device_id),

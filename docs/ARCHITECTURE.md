@@ -28,7 +28,7 @@
                                ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                Agent 层（agents/, LangGraph）                  │
-│  planner_graph（主图 + 单日编辑子图）                            │
+│  planner_graph（主图）                                          │
 │  nodes │ rag_tool │ tools │ state │ llm_factory              │
 └──────────────────────────────┬───────────────────────────────┘
                                ▼
@@ -47,7 +47,7 @@
 
 - `backend/app/api/main.py`：FastAPI 唯一装配点，负责 lifespan、CORS、请求日志中间件、全局异常处理器与路由注册（prefix/tags 统一在此管理）。
 - 路由文件只做 HTTP 入口与参数校验，不承载业务：
-  - `routes/trip.py`：行程生成 / 编辑 / 历史 / 删除（同步 `def`，走线程池）。
+  - `routes/trip.py`：行程生成 / 历史 / 删除（同步 `def`，走线程池）。
   - `routes/weather.py`：城市天气查询（`async def`）。
   - `routes/export.py`：Markdown / PDF 导出。
 - 领域异常冒泡到全局处理器转 HTTP 状态码：
@@ -74,7 +74,6 @@
 
 - **主图** `planner_graph`：
   `START → prefetch_rag → llm_plan ⇄ rag_tools → parse_draft → (repair_json) → validate_repair → build_trip → enrich_budget → END`，任意步骤失败可走 `fallback` 降级模板。
-- **单日编辑子图** `edit_day_graph`：以 `build_edit_day_input` 起始，`merge_edit_day` 结束。
 - `rag_tool`：把第四阶段 Retriever 封装为 OpenAI 兼容 function calling 工具（`search_travel_guides`）。
 - `llm_factory`：通过 `langchain-openai` 的 `ChatOpenAI` 对接智谱 OpenAI 兼容端点。
 
@@ -89,7 +88,7 @@
 | Agent | 职责 | 数据来源 |
 |-------|------|---------|
 | RAG Agent | 攻略检索（Query Rewrite、向量召回、Rerank） | 本地 Markdown 攻略 |
-| Trip Planner Agent | 生成 / 编辑结构化行程（JSON） | RAG 结果或 POI 候选池 + LLM |
+| Trip Planner Agent | 生成结构化行程（JSON） | RAG 结果或 POI 候选池 + LLM |
 | Map Agent | 地理编码、POI 详情、路线、图片 | 高德 Web API |
 | Weather Agent | 实时天气 / 预报与出行建议 | 高德天气 API |
 
@@ -100,7 +99,7 @@
 
 ## 4. 关键设计决策
 
-1. **同步 vs 异步**：`generate_trip` / `edit_trip_day` 为同步阻塞（LangGraph invoke + SQLite），路由声明同步 `def` 让 FastAPI 走线程池；天气/导出走 `async def`。`trip_service._run_async` 在同步上下文桥接异步高德 IO。
+1. **同步 vs 异步**：`generate_trip` 为同步阻塞（LangGraph invoke + SQLite），路由声明同步 `def` 让 FastAPI 走线程池；天气/导出走 `async def`。`trip_service._run_async` 在同步上下文桥接异步高德 IO。
 2. **失败不阻断主流程**：地图/天气/缓存失败记入 `metadata["enrich_warnings"]`，行程照常返回，避免外部依赖拖垮核心链路。
 3. **路径稳定性**：`CHROMA_DB_PATH` / `DATABASE_URL` 相对路径基于项目根解析，避免启动目录不同连错库。
 4. **单一装配点**：路由 prefix/tags、CORS、异常处理器、日志全部集中在 `api/main.py`。
@@ -111,7 +110,7 @@
 
 - 页面只做组装：`Home`（规划表单）/ `Result`（行程展示 + 地图 + 天气 + 预算）/ `History`（历史列表）/ `NotFound`。
 - 业务组件独立成文件、显式 props：`components/trip/`、`components/map/`、`components/weather/`、`components/budget/`。
-- `services/api.ts` 统一 axios 实例 + 拦截器，页面不直接触碰 axios；超时区分生成（5 分钟）/ 编辑（2 分钟）/ 导出（2 分钟）。
+- `services/api.ts` 统一 axios 实例 + 拦截器，页面不直接触碰 axios；超时区分生成（5 分钟）/ 导出（2 分钟）。
 - 高德 JSAPI key 经 `vite.config.ts` 的 `define` 注入 `__AMAP_JS_API_KEY__` / `__AMAP_SECURITY_JS_CODE__`。
 - 开发期 vite proxy：`/trip` `/weather` `/export` `/health` → `http://localhost:8000`。
 

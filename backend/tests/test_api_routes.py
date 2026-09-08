@@ -2,7 +2,7 @@
 智旅云图 - API 路由集成测试（Phase 7.1-7.4）
 
 使用 FastAPI TestClient + mock 服务层，不打真实 LLM / 高德 / SQLite。
-覆盖：健康检查、行程生成/编辑/历史/删除、Markdown/PDF 导出、天气查询。
+覆盖：健康检查、行程生成/历史/删除、Markdown/PDF 导出、天气查询。
 """
 
 from __future__ import annotations
@@ -26,8 +26,6 @@ from app.models.schemas import (
     TripResponse,
     WeatherInfo,
 )
-from app.services.trip_service import TripNotFoundError
-
 DEVICE_ID = "dev-test-client"
 
 
@@ -160,28 +158,6 @@ class TestTripApi:
             resp = client.post("/trip/generate", json=_future_trip_request())
         assert resp.status_code == 400
         assert resp.json()["error_code"] == "CITY_NOT_SUPPORTED"
-
-    def test_edit_trip_success(self, client):
-        """POST /trip/edit 编辑行程"""
-        mock_trip = _sample_trip()
-        payload = {"trip_id": "TRP-API-001", "day_number": 1, "instruction": "把故宫放到下午"}
-        with patch("app.api.routes.trip.trip_service.edit_trip_day", return_value=mock_trip) as mock_edit:
-            resp = client.post("/trip/edit", json=payload)
-        assert resp.status_code == 200
-        assert resp.json()["trip_id"] == "TRP-API-001"
-        mock_edit.assert_called_once()
-        assert mock_edit.call_args.kwargs["user_id"] == DEVICE_ID
-
-    def test_edit_trip_not_found(self, client):
-        """行程不存在 → 404"""
-        payload = {"trip_id": "NOPE", "day_number": 1, "instruction": "调整"}
-        with patch(
-            "app.api.routes.trip.trip_service.edit_trip_day",
-            side_effect=TripNotFoundError("NOPE"),
-        ):
-            resp = client.post("/trip/edit", json=payload)
-        assert resp.status_code == 404
-        assert resp.json()["error_code"] == "TRIP_NOT_FOUND"
 
     def test_list_history(self, client):
         """GET /trip/history 分页历史"""

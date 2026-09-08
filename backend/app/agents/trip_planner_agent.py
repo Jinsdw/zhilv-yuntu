@@ -10,7 +10,6 @@
 - Prompt 与 JSON 抽取工具函数
 - TripPlannerAgent：薄壳入口，编译并调用 LangGraph
   - plan(): 主图
-  - edit_day(): 单日编辑子图
 - 业务方法（被 nodes.py 通过 TripPlannerAgent.__new__ 复用）：
   - _repair_json_with_llm / draft_to_trip_response / _draft_day_to_model
   - validate_and_repair / _sort_and_fix_times
@@ -594,7 +593,7 @@ def _parse_time_minutes(t: str) -> int:
 # TripPlannerAgent（LangGraph 薄壳）
 #
 # 自第五阶段起，控制流迁移至 LangGraph StateGraph（见 planner_graph.py）。
-# 本类保留为对外兼容入口：plan() / edit_day() 签名与返回值不变，
+# 本类保留为对外兼容入口：plan() 签名与返回值不变，
 # 内部编译并调用 graph。
 #
 # 业务纯函数（validate_and_repair / draft_to_trip_response
@@ -608,7 +607,6 @@ class TripPlannerAgent:
     行程规划 Agent（LangGraph 实现）。
 
     - plan(): TripRequest → TripResponse（走主图）
-    - edit_day(): 单日智能调整（走单日编辑子图）
 
     内部使用 langgraph StateGraph；外部接口与第五阶段命令式实现保持一致。
     """
@@ -632,9 +630,8 @@ class TripPlannerAgent:
         self.max_tokens = max_tokens
         self.max_tool_rounds = max(1, int(max_tool_rounds))
 
-        # 已编译图（懒加载，首次 plan/edit_day 时构造）
+        # 已编译图（懒加载，首次 plan 时构造）
         self._planner_graph = None
-        self._edit_day_graph = None
 
     # ---------- 图懒加载 ----------
 
@@ -651,7 +648,6 @@ class TripPlannerAgent:
         self._rag_tool = value
         # 注入新 rag_tool 时重置已编译图
         self._planner_graph = None
-        self._edit_day_graph = None
 
     def _get_planner_graph(self):
         if self._planner_graph is None:
@@ -662,15 +658,6 @@ class TripPlannerAgent:
                 rag_tool=self._rag_tool if self._rag_tool is not None else None
             )
         return self._planner_graph
-
-    def _get_edit_day_graph(self):
-        if self._edit_day_graph is None:
-            from app.agents.planner_graph import build_edit_day_graph
-
-            self._edit_day_graph = build_edit_day_graph(
-                rag_tool=self._rag_tool if self._rag_tool is not None else None
-            )
-        return self._edit_day_graph
 
     # ---------- LLM 客户端（仅供 _repair_json_with_llm 等老路径复用） ----------
 
@@ -768,106 +755,6 @@ class TripPlannerAgent:
         final_meta = final_state.get("meta", meta)
         final_meta.setdefault("generation_time", round(time.time() - start, 3))
         return trip.model_copy(update={"metadata": final_meta})
-
-    def edit_day(
-        self,
-        trip: TripResponse,
-        day_number: int,
-        instruction: str,
-        *,
-        request: Optional[TripRequest] = None,
-        context: Optional[str] = None,
-        allow_fallback: bool = True,
-    ) -> TripResponse:
-        """单日智能调整。内部走 LangGraph 单日编辑子图。"""
-        if day_number < 1 or day_number > len(trip.days):
-            raise PlannerValidationError(f"无效 day_number: {day_number}")
-
-        req = request or self._derive_request_from_trip(trip)
-        meta: dict[str, Any] = {
-            "tool_rounds": 0,
-            "rag_degraded": False,
-            "validation_warnings": [],
-            "path": "edit_day",
-            "needs_enrichment": True,
-            "edited_day": day_number,
-            "model_used": self.model,
-        }
-
-        state: dict = {
-            "base_trip": trip,
-            "day_number": day_number,
-            "instruction": instruction,
-            "request": req,
-            "context": context,
-            "use_tools": bool(context is None),
-            "allow_fallback": allow_fallback,
-            "meta": meta,
-            "messages": [],
-            "validation_warnings": [],
-            "repair_attempts": 0,
-        }
-
-        try:
-            graph = self._get_edit_day_graph()
-            final_state = graph.invoke(state, {"recursion_limit": 24})
-        except Exception as e:
-            logger.error(f"edit_day graph 执行失败: {e}")
-            if not allow_fallback:
-                raise PlannerError(f"edit_day graph 失败: {e}") from e
-            return trip.model_copy(
-                update={
-                    "metadata": {
-                        **(trip.metadata or {}),
-                        "edit_failed": True,
-                        "edit_error": str(e),
-                    }
-                }
-            )
-
-        edited = final_state.get("edited_day")
-        if edited is None:
-            err = final_state.get("error", "edit_day produced no result")
-            if not allow_fallback:
-                raise PlannerError(err)
-            return trip.model_copy(
-                update={
-                    "metadata": {
-                        **(trip.metadata or {}),
-                        "edit_failed": True,
-                        "edit_error": err,
-                    }
-                }
-            )
-        return edited
-
-    @staticmethod
-    def _derive_request_from_trip(trip: TripResponse) -> TripRequest:
-        """从 TripResponse 反推一个最小可用的 TripRequest（用于 edit_day 的单日裁剪）。
-
-        尽量从 special_needs_notes 和 metadata 中反推原始特殊需求设置，
-        确保单日编辑时特殊需求约束仍然生效。
-        """
-        # 从 metadata 中反推（如果保存了原始请求信息）
-        meta = trip.metadata or {}
-        req_data = meta.get("original_request") or {}
-
-        # 从 special_needs_notes 反推特殊需求标志
-        notes = trip.special_needs_notes or []
-        notes_text = " ".join(notes)
-        with_kids = bool(req_data.get("with_kids")) or ("亲子" in notes_text or "儿童" in notes_text)
-        with_elderly = bool(req_data.get("with_elderly")) or ("老人" in notes_text or "适老" in notes_text)
-        has_disability = bool(req_data.get("has_disability")) or ("无障碍" in notes_text or "轮椅" in notes_text)
-
-        return TripRequest(
-            destination=trip.destination,
-            start_date=trip.start_date,
-            end_date=trip.end_date,
-            travelers=1,
-            with_kids=with_kids,
-            with_elderly=with_elderly,
-            has_disability=has_disability,
-        )
 
     # ------------------------------------------------------------------
     # 业务方法：以下函数被 nodes.py 通过 TripPlannerAgent.__new__ 复用。

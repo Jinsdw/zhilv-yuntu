@@ -104,17 +104,17 @@ Result
 ├── 行程封面（.zl-hero）：目的地 Tag + 宋体行程名 + 日期区间
 │   ├── 概览统计条：天数 / 人均预算 / 综合评分（图标块 + 数字）
 │   ├── 行程亮点胶囊
-│   └── 操作：返回规划 / 编辑当天 / 导出(Markdown·PDF)
+│   └── 操作：返回规划 / 导出(Markdown·PDF)
 ├── Day 导航条：胶囊按钮「第 N 天 · MM-DD」（横向可滚动）
 ├── 两栏内容
-│   ├── 左：当日时间线（DayTimeline 日期徽章 + 时间节点 + PlaceCard 纸张卡片 + 编辑当天）
+│   ├── 左：当日时间线（DayTimeline 日期徽章 + 时间节点 + PlaceCard 纸张卡片）
 │   └── 右：WeatherPanel + BudgetPanel（纸张卡片）
 ├── MapPanel（行程地图，天筛选 + 图例 + 点位抽屉）
 ├── 特殊需求保障 / 推荐美食（纸张卡片并排）
 └── 行程贴士（分组纸张卡片）
 ```
 
-数据流不变：`location.state` → `?trip_id=` → 快照；单日编辑 `POST /trip/edit` 就地替换。
+数据流不变：`location.state` → `?trip_id=` → 快照。
 
 ### 3.4 历史页 History（已重写）
 
@@ -146,7 +146,7 @@ History
 
 ## 5. 状态与数据流
 
-与 v1 完全一致（生成 / 编辑 / 历史 / 天气 / 导出 / 健康检查），接口清单见 `docs/API.md` 与 `frontend/src/services/api.ts`。
+与 v1 完全一致（生成 / 历史 / 天气 / 导出 / 健康检查），接口清单见 `docs/API.md` 与 `frontend/src/services/api.ts`。
 
 ---
 

@@ -1,6 +1,6 @@
 # 智旅云图 - 数据流图说明
 
-> 本文档描述行程生成、检索、编辑、导出等核心链路的数据流转。
+> 本文档描述行程生成、检索、导出等核心链路的数据流转。
 
 ## 1. 端到端数据流（行程生成）
 
@@ -84,22 +84,7 @@ TripRequest（动态城市）
 
 景点池为空或拉取失败 → 回退 `Agent.plan(use_tools=True)` RAG 路径。
 
-## 5. 单日编辑链路
-
-```
-POST /trip/edit（trip_id + day_number + instruction + context）
-  → trip_service.edit_trip_day
-  → storage 读取原行程 → 反推 TripRequest
-  → edit_day_graph：
-      build_edit_day_input（只保留目标日 + 其他日地点排除清单）
-        → llm_plan ⇄ rag_tools（可选检索）
-        → parse_draft → validate/repair
-        → merge_edit_day（合并回原行程）
-  → 单日地图补全（geocode + 餐饮/住宿，复用 photo_cache）
-  → 持久化更新 + 返回编辑后完整 TripResponse
-```
-
-## 6. 导出链路
+## 5. 导出链路
 
 ```
 GET /export/markdown/{trip_id} 或 /export/pdf/{trip_id}
@@ -111,7 +96,7 @@ GET /export/markdown/{trip_id} 或 /export/pdf/{trip_id}
   → 前端 blob 下载
 ```
 
-## 7. 天气链路
+## 6. 天气链路
 
 ```
 GET /weather/{city}?days=3&mode=both
@@ -123,7 +108,7 @@ GET /weather/{city}?days=3&mode=both
 
 天气是补充信息：查无数据返回 200 + 空结构，不阻断行程主流程；服务不可用返回 503。
 
-## 8. 数据持久化
+## 7. 数据持久化
 
 - **SQLite**（`trips.db`）：`trip_history` 表存储请求/响应 JSON + 索引字段（目的地、日期、用户、收藏）。
 - **ChromaDB**（`chroma_db/`）：攻略分块向量库，按城市组织，支持增量更新与备份恢复。

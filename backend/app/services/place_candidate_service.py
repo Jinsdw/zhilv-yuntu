@@ -1272,7 +1272,7 @@ class PlaceCandidateService:
         *,
         limit: int = 5,
     ) -> Optional[CandidatePlace]:
-        """单点名称解析/纠名，供 6.1 或 edit_day 使用。"""
+        """单点名称解析/纠名。"""
         name = (name or "").strip()
         city = (city or "").strip()
         if not name or not city:

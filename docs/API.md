@@ -206,33 +206,7 @@
 - 400 `CITY_NOT_SUPPORTED`：目的地为省级等不支持的城市
 - 500 `TRIP_SERVICE_ERROR` / `INTERNAL_ERROR`：编排或存储失败
 
-### 4.2 POST /trip/edit
-
-对指定天执行自然语言编辑，返回编辑后的完整行程。
-
-**请求体 TripEditRequest**
-
-```json
-{
-  "trip_id": "TRP-20260904-1A2B3C4D",
-  "day_number": 2,
-  "instruction": "第二天增加一个适合傍晚游览的景点",
-  "context": "（可选）攻略上下文"
-}
-```
-
-| 字段 | 类型 | 约束 |
-|------|------|------|
-| `trip_id` | string | 必填，≥1 字符 |
-| `day_number` | int | 必填，≥1（1-based） |
-| `instruction` | string | 必填，1-500 字符 |
-| `context` | string | 可选 |
-
-**响应 200**：完整 `TripResponse`（同 4.1）
-
-**错误**：404 `TRIP_NOT_FOUND`（行程不存在）
-
-### 4.3 GET /trip/history
+### 4.2 GET /trip/history
 
 行程历史分页摘要（不含每日明细）。
 
@@ -278,7 +252,7 @@
 }
 ```
 
-### 4.4 DELETE /trip/history/{trip_id}
+### 4.3 DELETE /trip/history/{trip_id}
 
 删除行程历史。
 
@@ -361,7 +335,7 @@
 
 - 2xx 自动解包 `response.data`；204 返回 `undefined`。
 - 非 2xx 解析 `error_code` / `error_message` 抛 `ApiError`。
-- 超时：生成 5 分钟、编辑 / 导出 2 分钟、其余 30 秒。
+- 超时：生成 5 分钟、导出 2 分钟、其余 30 秒。
 - 导出使用 `responseType: 'blob'` 触发浏览器下载。
 
 ---

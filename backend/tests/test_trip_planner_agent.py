@@ -4,7 +4,7 @@
 测试范围：
 - 纯函数：build_user_prompt / extract_json_object / validate_and_repair
   / draft_to_trip_response / enrich_budget_and_summary
-- LLM 路径：用 FakeLLM 替换 build_llm，验证 plan / edit_day / fallback
+- LLM 路径：用 FakeLLM 替换 build_llm，验证 plan / fallback
 
 不打真实 LLM API；不打 ChromaDB（rag_tool 用 mock）。
 Graph 端到端测试见 test_planner_graph.py。
@@ -415,47 +415,6 @@ class TestBudget:
             allow_fallback=False,
         )
         assert lux.budget.total_budget > eco.budget.total_budget
-
-
-class TestEditDay:
-    def test_edit_only_target_day(self, agent, patch_llm, patch_default_rag):
-        payload = _sample_draft_json(days=3, places_per_day=2)
-        patch_llm.responses = [AIMessage(content=json.dumps(payload, ensure_ascii=False))]
-
-        req = _make_request(days=3)
-        trip = agent.plan(req, context="c", allow_fallback=False)
-        original_day2 = [it.place.name for it in trip.days[1].items]
-        original_day3 = [it.place.name for it in trip.days[2].items]
-
-        edited_payload = {
-            "days": [
-                {
-                    "day_number": 1,
-                    "day_theme": "新主题",
-                    "items": [
-                        {
-                            "start_time": "10:00",
-                            "end_time": "12:00",
-                            "name": "新景点X",
-                            "category": "景点",
-                            "activity": "打卡",
-                        }
-                    ],
-                    "lunch": {"name": "新午餐", "cuisine_type": "川菜", "avg_price": 70},
-                }
-            ],
-            "trip_highlights": ["新亮点"],
-            "trip_tips": [],
-        }
-        # 重置 FakeLLM 序列
-        patch_llm._idx = 0
-        patch_llm.invoke_count = 0
-        patch_llm.responses = [AIMessage(content=json.dumps(edited_payload, ensure_ascii=False))]
-
-        updated = agent.edit_day(trip, 1, "换成更轻松的安排", request=req, allow_fallback=False)
-        assert any(it.place.name == "新景点X" for it in updated.days[0].items)
-        assert [it.place.name for it in updated.days[1].items] == original_day2
-        assert [it.place.name for it in updated.days[2].items] == original_day3
 
 
 # ---------------------------------------------------------------------------

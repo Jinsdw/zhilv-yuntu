@@ -2,7 +2,7 @@
 智旅云图 - LangGraph 主图与节点单元测试
 
 测试范围：
-- 图可正常编译（build_planner_graph / build_edit_day_graph）
+- 图可正常编译（build_planner_graph）
 - 路由函数（route_after_llm / route_after_parse 等）决策正确
 - 单个节点的纯函数行为（prefetch_rag / parse_draft / validate_repair 等）
 - 端到端调用：用 FakeLLM 替换 build_llm，验证主图能产出 TripResponse
@@ -211,11 +211,6 @@ class TestGraphCompile:
         g = planner_graph.build_planner_graph()
         assert g is not None
         # 编译后的图应可调用 invoke
-        assert hasattr(g, "invoke")
-
-    def test_edit_day_graph_compiles(self):
-        g = planner_graph.build_edit_day_graph()
-        assert g is not None
         assert hasattr(g, "invoke")
 
     def test_get_planner_graph_singleton(self):

@@ -7,7 +7,7 @@
 - draft_to_trip_response：天数/日期/景点数量/时间/地点/评分结构
 - enrich_budget_and_summary：预算拆分一致性、贴士分组、摘要补全
 - validate_and_repair：排除词、每日景点上限、天数对齐、B类候选池补选
-- plan() 端到端：LLM 路径 / edit_day / fallback 的元数据与输出结构
+- plan() 端到端：LLM 路径 / fallback 的元数据与输出结构
 - B 类动态城市：候选池 place_id、真实坐标、食宿自动补选
 
 不打真实 LLM API；不打 ChromaDB（rag_tool 用 mock）。
@@ -512,79 +512,6 @@ class TestPlanEndToEnd:
         assert trip.metadata["needs_enrichment"] is False
         assert trip.metadata["model_used"] == "test-model"
         assert trip.metadata["generation_time"] >= 0
-
-    def test_edit_day_output(self, agent, patch_llm):
-        payload = {
-            "trip_name": "成都三日游",
-            "days": [],
-            "trip_highlights": ["火锅"],
-            "trip_tips": [],
-            "recommended_foods": [],
-        }
-        for i in range(1, 4):
-            payload["days"].append(
-                {
-                    "day_number": i,
-                    "day_theme": f"主题{i}",
-                    "items": [
-                        {
-                            "start_time": "09:00",
-                            "end_time": "11:00",
-                            "name": f"景点{i}-1",
-                            "category": "景点",
-                            "activity": "游览",
-                        },
-                        {
-                            "start_time": "14:00",
-                            "end_time": "16:30",
-                            "name": f"景点{i}-2",
-                            "category": "景点",
-                            "activity": "游览",
-                        },
-                    ],
-                    "lunch": {"name": f"午餐{i}", "cuisine_type": "川菜", "avg_price": 80},
-                    "dinner": {"name": f"晚餐{i}", "cuisine_type": "火锅", "avg_price": 100},
-                    "hotel": {"name": f"酒店{i}", "hotel_type": "舒适型", "price": 320},
-                }
-            )
-        patch_llm.responses = [AIMessage(content=json.dumps(payload, ensure_ascii=False))]
-
-        req = _make_request(days=3)
-        trip = agent.plan(req, context="c", use_tools=False, allow_fallback=False)
-        original_day2 = [it.place.name for it in trip.days[1].items]
-        original_day3 = [it.place.name for it in trip.days[2].items]
-
-        edited_payload = {
-            "days": [
-                {
-                    "day_number": 1,
-                    "day_theme": "新主题",
-                    "items": [
-                        {
-                            "start_time": "10:00",
-                            "end_time": "12:00",
-                            "name": "新景点X",
-                            "category": "景点",
-                            "activity": "打卡",
-                        }
-                    ],
-                    "lunch": {"name": "新午餐", "cuisine_type": "川菜", "avg_price": 70},
-                }
-            ],
-            "trip_highlights": ["新亮点"],
-            "trip_tips": [],
-        }
-        patch_llm._idx = 0
-        patch_llm.invoke_count = 0
-        patch_llm.responses = [AIMessage(content=json.dumps(edited_payload, ensure_ascii=False))]
-
-        updated = agent.edit_day(trip, 1, "换成更轻松的安排", request=req, allow_fallback=False)
-        assert updated.metadata["path"] == "edit_day"
-        assert updated.metadata["edited_day"] == 1
-        _assert_trip_invariants(updated, req)
-        assert any(it.place.name == "新景点X" for it in updated.days[0].items)
-        assert [it.place.name for it in updated.days[1].items] == original_day2
-        assert [it.place.name for it in updated.days[2].items] == original_day3
 
     def test_fallback_output(self, agent, mock_rag, monkeypatch):
         broken = MagicMock()

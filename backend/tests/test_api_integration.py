@@ -3,11 +3,11 @@
 
 与 test_api_routes.py（mock 服务层）不同，本文件跑真实链路：
     - 真实 FastAPI 应用 + lifespan（真实初始化临时 SQLite 表）
-    - 真实 TripService 编排（generate / edit 全流程）
+- 真实 TripService 编排（generate 全流程）
     - 真实存储（临时 SQLite 文件）
 仅 mock 外部网络依赖：Agent(LLM) / 高德地图 / 天气 / LLM 建议 / 缓存。
 
-覆盖：健康检查、行程生成→落库→历史→导出→编辑→删除、错误路径（422/400/404/503）、CORS。
+覆盖：健康检查、行程生成→落库→历史→导出→删除、错误路径（422/400/404/503）、CORS。
 """
 
 from __future__ import annotations
@@ -184,7 +184,6 @@ def app_env(tmp_path):
 
     agent = MagicMock()
     agent.plan.side_effect = lambda request, **kw: _placeholder_trip(request)
-    agent.edit_day.side_effect = _fake_edit_day
 
     amap = MagicMock()
     amap.geocode = AsyncMock(return_value=_geocode_result())
@@ -223,35 +222,6 @@ def app_env(tmp_path):
     finally:
         for p in reversed(patches):
             p.stop()
-
-
-def _fake_edit_day(trip: TripResponse, day_number: int, instruction: str, **kwargs) -> TripResponse:
-    """返回编辑后的行程：修改 Day1 景点名称 + 主题，验证真实持久化。"""
-    edited = trip.model_copy(deep=True)
-    if edited.days and day_number >= 1 and day_number <= len(edited.days):
-        day = edited.days[day_number - 1]
-        edited_days = list(edited.days)
-        edited_days[day_number - 1] = day.model_copy(
-            update={
-                "day_theme": "深度文化游",
-                "items": [
-                    item.model_copy(
-                        update={
-                            "place": item.place.model_copy(
-                                update={"name": "编辑后景点", "place_id": "edited-1"}
-                            ),
-                            "activity": "深度游览",
-                        }
-                    )
-                    for item in day.items
-                ],
-            }
-        )
-        edited = edited.model_copy(update={"days": edited_days})
-    edited = edited.model_copy(
-        update={"metadata": {**(edited.metadata or {}), "edited_marker": "yes"}}
-    )
-    return edited
 
 
 def _fake_trip_weather(
@@ -363,37 +333,6 @@ class TestTripApiIntegration:
         resp = client.post("/trip/generate", json=_future_trip_request())
         assert resp.status_code == 500
         assert resp.json()["error_code"] == "TRIP_SERVICE_ERROR"
-
-    def test_edit_trip_full_flow_persists(self, app_env):
-        """生成 → 编辑单日 → 真实读库 → 真实更新落库"""
-        client, _, temp_storage = app_env
-        trip_id = client.post("/trip/generate", json=_future_trip_request()).json()["trip_id"]
-
-        resp = client.post(
-            "/trip/edit",
-            json={"trip_id": trip_id, "day_number": 1, "instruction": "把故宫放到下午"},
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["trip_id"] == trip_id
-        assert body["days"][0]["day_theme"] == "深度文化游"
-        assert body["days"][0]["items"][0]["place"]["name"] == "编辑后景点"
-        assert body["metadata"].get("edited_marker") == "yes"
-
-        # 真实持久化：从临时 SQLite 读回
-        history = temp_storage.get_trip_as_history(trip_id)
-        assert history is not None
-        assert history.response.days[0].day_theme == "深度文化游"
-
-    def test_edit_trip_not_found_404(self, app_env):
-        """编辑不存在的行程 → 404（真实存储查无 → 领域异常）"""
-        client, _, _ = app_env
-        resp = client.post(
-            "/trip/edit",
-            json={"trip_id": "NOPE", "day_number": 1, "instruction": "调整"},
-        )
-        assert resp.status_code == 404
-        assert resp.json()["error_code"] == "TRIP_NOT_FOUND"
 
     def test_history_filters_and_pagination(self, app_env):
         """历史列表真实过滤（目的地）+ 分页参数校验"""
@@ -730,5 +669,5 @@ class TestInfraIntegration:
         resp = client.get("/openapi.json")
         assert resp.status_code == 200
         paths = resp.json()["paths"]
-        for path in ("/trip/generate", "/trip/edit", "/trip/history", "/weather/{city}", "/health"):
+        for path in ("/trip/generate", "/trip/history", "/weather/{city}", "/health"):
             assert path in paths

@@ -501,15 +501,6 @@ class HealthCheckResponse(BaseModel):
 
 # ==================== 第七阶段 API 层新增模型 ====================
 
-class TripEditRequest(BaseModel):
-    """行程编辑请求模型（Phase 7.1.3）"""
-
-    trip_id: str = Field(..., min_length=1, description="行程ID")
-    day_number: int = Field(..., ge=1, description="第几天(1-based)")
-    instruction: str = Field(..., min_length=1, max_length=500, description="编辑指令(自然语言)")
-    context: Optional[str] = Field(default=None, description="可选的攻略上下文")
-
-
 class TripBatchDeleteRequest(BaseModel):
     """行程历史批量删除请求模型（Phase 7.1.7）"""
 

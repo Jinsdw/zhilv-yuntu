@@ -11,7 +11,7 @@
  *       非 2xx 统一解析后端 ErrorResponse 结构（error_code / error_message），
  *       抛出 ApiError；网络错误 / 超时构造带 isNetworkError 标记的 ApiError。
  *     - 错误码分支参考 types/api.ts 的 ApiErrorCode 常量。
- *     - 行程生成 / 编辑涉及 LLM 调用，超时单独放宽；导出走 blob 下载。
+ *     - 行程生成涉及 LLM 调用，超时单独放宽；导出走 blob 下载。
  */
 
 import axios, { AxiosError } from 'axios'
@@ -24,7 +24,6 @@ import type {
   CityWeatherResponse,
   HealthCheckResponse,
   TripBatchResult,
-  TripEditRequest,
   TripHistoryListResponse,
   TripRequest,
   TripResponse,
@@ -38,9 +37,6 @@ const DEFAULT_TIMEOUT = 30_000
 
 /** 行程生成超时：LLM 编排耗时较长，放宽到 5 分钟 */
 const GENERATE_TIMEOUT = 300_000
-
-/** 行程编辑超时：单日 LLM 编辑，放宽到 2 分钟 */
-const EDIT_TIMEOUT = 120_000
 
 /** 导出下载超时：PDF 渲染较慢，放宽到 2 分钟 */
 const EXPORT_TIMEOUT = 120_000
@@ -233,15 +229,6 @@ export const tripApi = {
         params: userId ? { user_id: userId } : undefined,
       },
     )
-  },
-
-  /**
-   * 8.2.3 行程编辑（单日自然语言编辑）
-   * POST /trip/edit
-   * 说明：返回编辑后的完整 TripResponse，前端就地替换当天数据。
-   */
-  edit(request: TripEditRequest): Promise<TripResponse> {
-    return api.post<TripResponse>('/trip/edit', request, { timeout: EDIT_TIMEOUT })
   },
 
   /**

@@ -1,15 +1,14 @@
 /**
  * 8.3.2 结果页：行程方案展示（按 DESIGN.md 3.3 组件树组装）。
  * v2 山海拾光：行程封面 + 概览条 + 胶囊 Day 导航 + 两栏内容（时间线 / 天气预算）+ 地图。
- * 数据来源优先级：location.state（生成/编辑后跳转）→ URL ?trip_id=（历史回看，异步拉取）
- * → sessionStorage 快照（见 utils/snapshot.ts）。单日编辑成功后就地替换 trip 并更新快照。
+ * 数据来源优先级：location.state（生成后跳转）→ URL ?trip_id=（历史回看，异步拉取）
+ * → sessionStorage 快照（见 utils/snapshot.ts）。
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import {
   DownloadOutlined,
-  EditOutlined,
   EnvironmentOutlined,
   HeartOutlined,
   LeftOutlined,
@@ -33,7 +32,6 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import BudgetPanel from '@/components/budget/BudgetPanel'
 import MapPanel from '@/components/map/MapPanel'
 import DayTimeline from '@/components/trip/DayTimeline'
-import EditDayModal from '@/components/trip/EditDayModal'
 import WeatherPanel from '@/components/weather/WeatherPanel'
 import { ROUTES } from '@/router/routes'
 import { exportApi, tripApi } from '@/services/api'
@@ -59,14 +57,12 @@ export default function Result() {
   })
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState(false)
-  const [editingDay, setEditingDay] = useState<number | null>(null)
-  const [editing, setEditing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [activeDay, setActiveDay] = useState<number>(1)
 
   const weatherList = useMemo(() => (trip?.days ?? []).map((day) => ({ date: day.itinerary_date, weather: day.weather })), [trip])
 
-  // 当前展示天：始终落在合法范围内（编辑/换行程后自动收敛）
+  // 当前展示天：始终落在合法范围内（换行程后自动收敛）
   const visibleDay = useMemo(() => {
     const days = trip?.days ?? []
     if (days.length === 0) return 0
@@ -148,12 +144,6 @@ export default function Result() {
     )
   }
 
-  const applyTrip = (next: TripResponse) => {
-    setTrip(next)
-    const snapshot = readTripSnapshot()
-    writeTripSnapshot({ trip: next, request: snapshot?.request })
-  }
-
   const handleExport = async (format: 'markdown' | 'pdf') => {
     setExporting(true)
     try {
@@ -163,21 +153,6 @@ export default function Result() {
       message.error(toErrorMessage(error, '导出失败'))
     } finally {
       setExporting(false)
-    }
-  }
-
-  const handleEditSubmit = async (instruction: string) => {
-    if (editingDay == null) return
-    setEditing(true)
-    try {
-      const next = await tripApi.edit({ trip_id: trip.trip_id, day_number: editingDay, instruction })
-      applyTrip(next)
-      message.success(`第 ${editingDay} 天已更新`)
-      setEditingDay(null)
-    } catch (error) {
-      message.error(toErrorMessage(error, '编辑失败，请稍后重试'))
-    } finally {
-      setEditing(false)
     }
   }
 
@@ -272,13 +247,6 @@ export default function Result() {
             <Button icon={<LeftOutlined />} onClick={() => navigate(ROUTES.home)}>
               返回规划
             </Button>
-            <Button
-              icon={<EditOutlined />}
-              disabled={visibleDay === 0}
-              onClick={() => setEditingDay(visibleDay)}
-            >
-              编辑当天
-            </Button>
             <Dropdown
               menu={{ items: exportMenuItems, onClick: ({ key }) => void handleExport(key as 'markdown' | 'pdf') }}
               disabled={exporting}
@@ -355,13 +323,6 @@ export default function Result() {
           {visibleDayData ? (
             <div className="zl-paper-card" style={{ padding: 24 }}>
               <DayTimeline day={visibleDayData} />
-              <Button
-                icon={<EditOutlined />}
-                style={{ alignSelf: 'flex-start', marginTop: 16 }}
-                onClick={() => setEditingDay(visibleDay)}
-              >
-                编辑第 {visibleDay} 天
-              </Button>
             </div>
           ) : (
             <Card>
@@ -466,17 +427,6 @@ export default function Result() {
             </ul>
           )}
         </div>
-      )}
-
-      {editingDay != null && (
-        <EditDayModal
-          open
-          dayNumber={editingDay}
-          dayTitle={trip.days?.find((d) => d.day_number === editingDay)?.day_theme ?? undefined}
-          loading={editing}
-          onCancel={() => setEditingDay(null)}
-          onSubmit={handleEditSubmit}
-        />
       )}
     </Flex>
   )

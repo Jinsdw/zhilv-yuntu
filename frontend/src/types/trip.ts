@@ -41,18 +41,6 @@ export interface TripRequest {
   restaurant_budget_per_meal: number
 }
 
-/** 行程编辑请求：与 schemas.TripEditRequest 对齐 */
-export interface TripEditRequest {
-  /** 行程 ID */
-  trip_id: string
-  /** 第几天（1-based） */
-  day_number: number
-  /** 编辑指令（自然语言） */
-  instruction: string
-  /** 可选的攻略上下文 */
-  context?: string | null
-}
-
 /** 行程规划响应：与 schemas.TripResponse 对齐 */
 export interface TripResponse {
   /** 行程唯一标识 */

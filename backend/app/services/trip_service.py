@@ -29,7 +29,7 @@ import inspect
 import json
 import time
 import uuid
-from datetime import date as date_type, datetime
+from datetime import date as date_type
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -328,12 +328,6 @@ class TripService:
         meta["generation_time"] = round(time.time() - started_at, 3)
         meta["needs_enrichment"] = False
         meta["preset_city"] = is_preset_city(dest)
-        # 保存原始请求中的特殊需求，供编辑时反推使用
-        meta["original_request"] = {
-            "with_kids": request.with_kids,
-            "with_elderly": request.with_elderly,
-            "has_disability": request.has_disability,
-        }
         trip = trip.model_copy(update={"metadata": meta})
 
         # 8. 持久化
@@ -878,134 +872,6 @@ class TripService:
             "total_cost": round(float(getattr(cb, "total_cost", 0.0) or 0.0), 6),
             "successful_requests": int(getattr(cb, "successful_requests", 0) or 0),
         }
-
-    # ================================================================
-    # 6.1.5 行程编辑（单日编辑 + 规则降级）
-    # ================================================================
-
-    def edit_trip_day(
-        self,
-        trip_id: str,
-        day_number: int,
-        instruction: str,
-        *,
-        user_id: Optional[str] = None,
-        request: Optional[TripRequest] = None,
-        context: Optional[str] = None,
-    ) -> TripResponse:
-        """
-        编辑行程的指定天。
-
-        规则降级策略：
-            - 行程不存在 → 抛 TripNotFoundError
-            - Agent.edit_day 失败 → 返回原 trip + metadata["edit_failed"]=True
-            - 地图补全失败 → 保留占位 + 记入 metadata["edit_warnings"]
-            - 持久化失败 → 不阻断返回，记入 warnings
-
-        Args:
-            trip_id: 行程ID
-            day_number: 第几天（1-based）
-            instruction: 编辑指令（自然语言）
-            user_id: 可选用户ID
-            request: 可选的原始请求（用于 Agent.edit_day）
-            context: 可选的攻略上下文
-
-        Returns:
-            编辑后的 TripResponse（即使失败也不抛异常）
-        """
-        # 1. 读库
-        history = self._storage.get_trip_as_history(trip_id, user_id=user_id)
-        if history is None:
-            raise TripNotFoundError(f"行程不存在: {trip_id}")
-
-        base_trip = history.response
-        edit_warnings: List[str] = []
-
-        # 优先使用传入的 request，否则从历史记录中恢复原始请求
-        actual_request = request
-        if actual_request is None:
-            actual_request = getattr(history, "request", None)
-
-        # 2. Agent 单日编辑（内部已实现降级：失败时返回原 trip + edit_failed）
-        try:
-            edited = self._agent.edit_day(
-                base_trip,
-                day_number,
-                instruction,
-                request=actual_request,
-                context=context,
-                allow_fallback=True,
-            )
-        except Exception as e:
-            logger.error(f"edit_trip_day Agent 调用失败: {e}")
-            return base_trip.model_copy(update={
-                "metadata": {
-                    **(base_trip.metadata or {}),
-                    "edit_failed": True,
-                    "edit_error": str(e),
-                }
-            })
-
-        # 3. 对编辑后的单日做地图补全（其他日保持原样）
-        edited = self._enrich_single_day_map(
-            edited, day_number, base_trip.destination, edit_warnings
-        )
-
-        # 4. 持久化
-        try:
-            self._storage.update_trip(
-                trip_id,
-                user_id=user_id,
-                response_data=json.loads(
-                    json.dumps(edited.model_dump(mode="json"), default=str)
-                ),
-            )
-        except Exception as e:
-            logger.error(f"编辑后持久化失败: {e}")
-            edit_warnings.append(f"持久化失败: {e}")
-
-        # 5. 元数据回填
-        meta = dict(edited.metadata or {})
-        if edit_warnings:
-            meta["edit_warnings"] = edit_warnings
-        meta["edited_at"] = datetime.now().isoformat()
-        return edited.model_copy(update={"metadata": meta})
-
-    def _enrich_single_day_map(
-        self,
-        trip: TripResponse,
-        day_number: int,
-        city: str,
-        warnings: List[str],
-    ) -> TripResponse:
-        """对编辑后的单日做 geocode 补全（其他日保持原样）。"""
-        amap = self._get_amap_geo()
-        if amap is None:
-            warnings.append("amap_geo 不可用，单日地图未补全")
-            return trip
-
-        if day_number < 1 or day_number > len(trip.days):
-            return trip
-
-        city_adcode = self._resolve_city_adcode(city)
-        idx = day_number - 1
-        day = trip.days[idx]
-
-        new_items: List[ItineraryItem] = []
-        for item in day.items:
-            new_place = self._geocode_place(
-                item.place, city, amap, warnings, day_number, city_adcode
-            )
-            new_items.append(item.model_copy(update={"place": new_place}))
-
-        new_day = day.model_copy(update={"items": new_items})
-        new_day = self._enrich_day_meals_hotel(
-            new_day, city, amap, warnings, photo_cache={}, city_adcode=city_adcode
-        )
-
-        new_days = list(trip.days)
-        new_days[idx] = new_day
-        return trip.model_copy(update={"days": new_days})
 
     # ================================================================
     # 行程 CRUD（薄包装 storage_service，供 Phase 7 API 直接调用）
