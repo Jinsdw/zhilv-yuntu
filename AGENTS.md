@@ -19,7 +19,7 @@ backend/
     agents/                # LangGraph 多 Agent（trip_planner_agent、planner_graph、nodes、rag_tool、tools、state、llm_factory）
     rag/                   # RAG（guide_catalog、index_config、retriever、vector_db）
     services/              # trip_service、storage_service、map_service、weather_service、export_service、cache_service、amap_geo_service、place_candidate_service
-    models/                # schemas.py（Pydantic）、db_models.py、init_db.py
+    models/                # schemas.py（Pydantic）、db_models.py
   tests/                   # pytest 测试（20+ 文件，mock 外部服务）
   scripts/ingest_guides.py # 攻略文档入库
   data/                    # trips.db、chroma_db、guides、exports、backups

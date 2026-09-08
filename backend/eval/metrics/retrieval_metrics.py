@@ -3,7 +3,7 @@
 提供 Recall、Precision、MRR、NDCG 等指标的完整实现
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict
 import math
 
 

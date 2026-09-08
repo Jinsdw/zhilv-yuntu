@@ -30,7 +30,7 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from loguru import logger
 
 from app.agents.llm_factory import (
@@ -45,7 +45,6 @@ from app.agents.rag_tool import rag_tool as default_rag_tool
 from app.agents.state import PlannerState
 from app.agents.trip_planner_agent import (
     DraftItinerary,
-    PlannerError,
     PlannerParseError,
     SYSTEM_PROMPT,
     analyze_draft_missing,

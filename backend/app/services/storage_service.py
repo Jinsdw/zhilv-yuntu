@@ -10,24 +10,21 @@
 
 import json
 import logging
-import time
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Generator
 import uuid
 
-from sqlalchemy import create_engine, and_, or_, desc, asc, func, text, String
+from sqlalchemy import create_engine, and_, desc, asc, func, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..config import settings
-from ..models.db_models import Base, TripHistoryDB, GuideDocumentDB, UserPreferenceDB
+from ..models.db_models import Base, TripHistoryDB, UserPreferenceDB
 from ..models.schemas import (
     TripRequest,
     TripResponse,
     TripHistory,
-    BudgetLevel,
-    TravelStyle,
 )
 
 logger = logging.getLogger(__name__)

@@ -7,7 +7,7 @@ import os
 import json
 import shutil
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional
 from datetime import datetime, timedelta
 
 from loguru import logger

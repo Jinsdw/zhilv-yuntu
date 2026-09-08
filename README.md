@@ -33,7 +33,7 @@
 ## 技术栈
 
 - **后端**：FastAPI + LangChain / LangGraph + ChromaDB + Redis（可选）+ SQLite + loguru
-- **模型**：生成 LLM 支持多平台切换——智谱（`glm-4.6v-FlashX`）、packycode（`deepseek-v4-flash`）、DeepSeek 官方（`deepseek-chat`），OpenAI 兼容接口；Embedding 走智谱 `text-embedding-v4`；Rerank 为本地模型 `BAAI/bge-reranker-v2-m3`（支持离线加载）
+- **模型**：生成 LLM 支持多平台切换——智谱（`glm-4.6v-FlashX`）、packycode（`gpt-5.6-luna`）、DeepSeek 官方（`deepseek-v4-flash`），OpenAI 兼容接口；Embedding 走智谱 `text-embedding-v4`；Rerank 为本地模型 `BAAI/bge-reranker-v2-m3`（支持离线加载）
 - **地图 / 天气**：高德地图 Web 服务 API + JavaScript API v2.0
 - **前端**：React 18 + TypeScript + Ant Design 5 + Vite + Axios；「山海拾光」明信片杂志风主题（主色 `#C0472F`，明暗双模式）
 - **部署**：Docker Compose（backend + redis）+ `start.ps1` 管理脚本
@@ -54,7 +54,7 @@ Copy-Item .env.example .env
 
 ```env
 AMAP_API_KEY=你的高德Web服务Key
-LLM_PROVIDER=zhipu4        # zhipu | zhipu4 | packycode | deepseek
+LLM_PROVIDER=zhipu        # zhipu | zhipu | packycode | deepseek
 ZHIPU_API_KEY=你的智谱Key  # 使用 packycode / deepseek 时改为对应平台 Key
 ```
 
@@ -123,7 +123,7 @@ backend/
     agents/                # LangGraph 多 Agent（trip_planner_agent、planner_graph、nodes、rag_tool、tools、state、llm_factory）
     rag/                   # RAG（guide_catalog、index_config、retriever、vector_db）
     services/              # trip_service、storage_service、map_service、amap_geo_service、geo_validation、place_candidate_service、weather_service、export_service、cache_service
-    models/                # schemas.py（Pydantic）、db_models.py、init_db.py
+    models/                # schemas.py（Pydantic）、db_models.py
   tests/                   # pytest 测试（26 个文件，mock 外部服务）
   scripts/                 # ingest_guides.py 攻略入库、clear-cache.ps1 缓存清理
   data/                    # trips.db、chroma_db、guides、exports、backups

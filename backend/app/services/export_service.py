@@ -34,7 +34,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from ..config import settings
 from ..models.schemas import TripResponse, ItineraryDay, ItineraryItem, TripTipCategory
 from .storage_service import storage_service
 

@@ -13,12 +13,10 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any, Optional
+from typing import Optional
 
-from langchain_core.tools import StructuredTool, tool
+from langchain_core.tools import StructuredTool
 from langgraph.prebuilt import ToolNode
-from loguru import logger
 
 from app.agents.rag_tool import (
     GuideCategory,

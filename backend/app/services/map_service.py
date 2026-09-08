@@ -22,15 +22,13 @@ import httpx
 import asyncio
 import logging
 import time
-import hashlib
-import json
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
 from datetime import date as date_type
 from enum import Enum
 from urllib.parse import urlencode
 
-from ..models.schemas import Coordinate, PlaceInfo, TripResponse, ItineraryDay, ItineraryItem
+from ..models.schemas import Coordinate, TripResponse
 
 # 配置日志
 logger = logging.getLogger(__name__)

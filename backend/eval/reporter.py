@@ -5,10 +5,9 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
-from dataclasses import asdict
+from typing import Dict, Any
 
-from .evaluator import EvaluationReport, EvaluationLevel
+from .evaluator import EvaluationReport
 
 
 class ReportGenerator:

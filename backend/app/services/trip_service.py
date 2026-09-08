@@ -28,12 +28,10 @@ import hashlib
 import inspect
 import json
 import time
-import uuid
 from datetime import date as date_type
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
-from pydantic import BaseModel
 
 from app.agents.llm_factory import (
     build_json_llm,
@@ -46,7 +44,6 @@ from app.agents.trip_planner_agent import TripPlannerAgent, trip_planner_agent
 from langchain_core.messages import HumanMessage
 from app.config import settings
 from app.models.schemas import (
-    BudgetInfo,
     Coordinate,
     ItineraryDay,
     ItineraryItem,
@@ -57,7 +54,6 @@ from app.models.schemas import (
 )
 from app.services.amap_geo_service import (
     AmapGeoService,
-    CityMatchType,
     GeocodeResult,
     get_amap_geo_service,
     init_amap_geo_service,
@@ -65,7 +61,6 @@ from app.services.amap_geo_service import (
 from app.services.cache_service import CacheNamespace, cache_service
 from app.services.geo_validation import validate_coordinate_for_city
 from app.services.place_candidate_service import (
-    CandidatePool,
     PlaceCandidateService,
     place_candidate_service,
 )

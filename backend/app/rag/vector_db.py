@@ -9,7 +9,7 @@ import hashlib
 import re
 import shutil
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional
 from datetime import datetime
 
 import chromadb

@@ -22,7 +22,7 @@ import logging
 import time
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
-from datetime import date as date_type, datetime, timedelta
+from datetime import date as date_type, timedelta
 
 from ..models.schemas import WeatherInfo
 from .cache_service import cache_service, CacheStrategy, CacheNamespace

@@ -2,7 +2,7 @@
 延迟性能指标计算模块
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict
 import statistics
 
 

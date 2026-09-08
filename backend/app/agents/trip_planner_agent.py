@@ -23,10 +23,10 @@ import re
 import time
 import uuid
 from datetime import date, datetime, timedelta
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.agents.llm_factory import (
     get_llm_thinking_config,
@@ -34,7 +34,7 @@ from app.agents.llm_factory import (
     log_llm_reasoning_from_message,
     log_llm_request,
 )
-from app.config import get_active_llm_config, settings
+from app.config import get_active_llm_config
 from app.models.schemas import (
     BudgetInfo,
     BudgetLevel,
@@ -44,7 +44,6 @@ from app.models.schemas import (
     ItineraryItem,
     PlaceInfo,
     RestaurantInfo,
-    TravelStyle,
     TripRequest,
     TripResponse,
     TripTipCategory,

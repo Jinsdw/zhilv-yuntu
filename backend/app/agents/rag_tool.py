@@ -23,9 +23,6 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.rag.guide_catalog import guide_catalog
 
-if TYPE_CHECKING:
-    from app.rag.retriever import Retriever
-
 # ---------------------------------------------------------------------------
 # 常量
 # ---------------------------------------------------------------------------

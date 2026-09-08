@@ -8,10 +8,10 @@ from typing import Optional, List
 import uuid
 
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, DateTime, Date,
-    Text, ForeignKey, JSON, Enum as SQLEnum, Index
+    String, Integer, Float, Boolean, DateTime, Date,
+    Text, JSON, Index
 )
-from sqlalchemy.orm import relationship, declarative_base, Mapped, mapped_column
+from sqlalchemy.orm import declarative_base, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 Base = declarative_base()
