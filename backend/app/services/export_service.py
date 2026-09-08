@@ -22,6 +22,7 @@ import io
 import json
 import logging
 import os
+import platform
 import re
 import tempfile
 import urllib.request
@@ -43,6 +44,52 @@ logger = logging.getLogger(__name__)
 # 默认配置
 DEFAULT_EXPORT_DIR = "backend/exports"
 DEFAULT_EXPIRE_HOURS = 24
+
+# emoji 及特殊符号正则（PDF 字体通常不支持这些字符，会导致乱码或方块）
+# 注意：范围必须精确，避免误删 CJK 汉字
+_EMOJI_RE = re.compile(
+    "["
+    # 表情符号 Emoticons (U+1F600-U+1F64F)
+    "\U0001F600-\U0001F64F"
+    # 杂项符号与象形图 Miscellaneous Symbols and Pictographs (U+1F300-U+1F5FF)
+    "\U0001F300-\U0001F5FF"
+    # 交通与地图符号 Transport and Map Symbols (U+1F680-U+1F6FF)
+    "\U0001F680-\U0001F6FF"
+    # 补充符号与象形图 Supplemental Symbols and Pictographs (U+1F900-U+1F9FF)
+    "\U0001F900-\U0001F9FF"
+    # 扩展象形图 Extended Pictographic (U+1FA70-U+1FAFF)
+    "\U0001FA70-\U0001FAFF"
+    # 补充符号 Supplemental Symbols (U+1FA00-U+1FA6F)
+    "\U0001FA00-\U0001FA6F"
+    # 杂项符号 Miscellaneous Symbols (U+2600-U+26FF)
+    "\u2600-\u26FF"
+    # 装饰符号 Dingbats (U+2700-U+27BF)
+    "\u2700-\u27BF"
+    # 杂项技术符号中的 emoji (部分)
+    "\u23F0-\u23F3"  # 时钟类
+    "\u231A-\u231B"  # 手表/沙漏
+    "\u23E9-\u23EC"  # 快进/快退
+    "\u23CF"         # 弹出符号
+    # 箭头符号中的 emoji
+    "\u2B05-\u2B07"  # 上下左右箭头
+    "\u2B1B-\u2B1C"  # 方块
+    "\u2B50-\u2B55"  # 星星等
+    # 国旗区域指示符 Regional indicator (U+1F1E6-U+1F1FF)
+    "\U0001F1E6-\U0001F1FF"
+    # 变体选择符-16（emoji 展示样式）
+    "\ufe0f"
+    # 零宽连接符（emoji ZWJ sequence）
+    "\u200d"
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def _strip_emoji(text: Any) -> str:
+    """移除文本中的 emoji 和特殊符号，避免 PDF 字体不支持导致乱码。"""
+    if text is None:
+        return ""
+    return _EMOJI_RE.sub("", str(text)).strip()
 
 
 def _first_image(images: List[str], cover: Optional[str] = None) -> Optional[str]:
@@ -602,11 +649,11 @@ class ExportService:
 <div class="cover">
     <div class="cover-title">智旅云图</div>
     <div class="cover-subtitle">行程规划报告</div>
-    <div class="cover-trip-name">{trip_data.trip_name}</div>
+    <div class="cover-trip-name">{_strip_emoji(trip_data.trip_name)}</div>
     <div class="cover-meta">
-        <span>📍 {trip_data.destination}</span>
-        <span>📅 {trip_data.start_date} 至 {trip_data.end_date}</span>
-        <span>🗓 {trip_data.total_days}天</span>
+        <span>目的地：{_strip_emoji(trip_data.destination)}</span>
+        <span>日期：{trip_data.start_date} 至 {trip_data.end_date}</span>
+        <span>共 {trip_data.total_days} 天</span>
     </div>
 </div>
 <div class="page-break"></div>
@@ -615,9 +662,9 @@ class ExportService:
     def _render_overview(self, trip_data: TripResponse, options: Optional[ExportOptions]) -> str:
         """渲染行程概览"""
         html = '<div class="section">'
-        html += '<h2 class="section-title">📋 行程概览</h2>'
+        html += '<h2 class="section-title">行程概览</h2>'
         html += '<table class="overview-table">'
-        html += f'<tr><td>目的地</td><td>{trip_data.destination}</td></tr>'
+        html += f'<tr><td>目的地</td><td>{_strip_emoji(trip_data.destination)}</td></tr>'
         html += f'<tr><td>行程时间</td><td>{trip_data.start_date} 至 {trip_data.end_date}</td></tr>'
         html += f'<tr><td>行程天数</td><td>{trip_data.total_days} 天</td></tr>'
 
@@ -625,7 +672,7 @@ class ExportService:
             html += f'<tr><td>预算总额</td><td>¥{trip_data.budget.total_budget:.2f}</td></tr>'
 
         if trip_data.trip_highlights and options and options.include_highlights:
-            highlights = "、".join(trip_data.trip_highlights[:5])
+            highlights = "、".join(_strip_emoji(h) for h in trip_data.trip_highlights[:5])
             html += f'<tr><td>行程亮点</td><td>{highlights}</td></tr>'
 
         html += '</table></div>'
@@ -635,10 +682,10 @@ class ExportService:
         """渲染单日行程"""
         html = f'''
 <div class="section day-section">
-    <h2 class="section-title">📅 Day {day.day_number} · {day.itinerary_date}'''
+    <h2 class="section-title">Day {day.day_number} · {day.itinerary_date}'''
         
         if day.weather and options and options.include_weather:
-            weather_str = day.weather.weather_type or ""
+            weather_str = _strip_emoji(day.weather.weather_type or "")
             if day.weather.temp_high and day.weather.temp_low:
                 weather_str += f" {day.weather.temp_low}-{day.weather.temp_high}℃"
             if weather_str:
@@ -647,7 +694,7 @@ class ExportService:
         html += '</h2>'
 
         if day.day_theme:
-            html += f'<div class="day-theme">主题：{day.day_theme}</div>'
+            html += f'<div class="day-theme">主题：{_strip_emoji(day.day_theme)}</div>'
 
         # 行程项目
         for item in day.items:
@@ -655,11 +702,11 @@ class ExportService:
 
         # 餐饮安排
         if day.breakfast:
-            html += self._render_restaurant("🌅 早餐", day.breakfast)
+            html += self._render_restaurant("早餐", day.breakfast)
         if day.lunch:
-            html += self._render_restaurant("🍜 午餐", day.lunch)
+            html += self._render_restaurant("午餐", day.lunch)
         if day.dinner:
-            html += self._render_restaurant("🍽 晚餐", day.dinner)
+            html += self._render_restaurant("晚餐", day.dinner)
 
         # 费用统计
         if options and options.include_budget:
@@ -679,18 +726,19 @@ class ExportService:
 <div class="itinerary-item">
     <div class="item-time">{item.start_time} - {item.end_time}</div>
     <div class="item-content">
-        <div class="item-place">📍 {item.place.name}</div>
-        <div class="item-activity">{item.activity}</div>
+        <div class="item-place">{_strip_emoji(item.place.name)}</div>
+        <div class="item-activity">{_strip_emoji(item.activity)}</div>
 '''
 
         if item.tips:
             for tip in item.tips[:2]:
-                html += f'<div class="item-tip">💡 {tip}</div>'
+                html += f'<div class="item-tip">贴士：{_strip_emoji(tip)}</div>'
 
         image_url = _first_image(item.place.images, item.place.cover_image)
         if image_url:
             safe_url = image_url.replace("&", "&amp;").replace('"', "&quot;")
-            html += f'<img class="item-image" src="{safe_url}" alt="{item.place.name}"/>'
+            alt_text = _strip_emoji(item.place.name)
+            html += f'<img class="item-image" src="{safe_url}" alt="{alt_text}"/>'
 
         html += '</div></div>'
         return html
@@ -701,18 +749,19 @@ class ExportService:
 <div class="meal-section">
     <div class="meal-type">{meal_type}</div>
     <div class="meal-content">
-        <div class="meal-name">🍴 {restaurant.name}</div>
-        <div class="meal-address">📌 {restaurant.address}</div>
+        <div class="meal-name">{_strip_emoji(restaurant.name)}</div>
+        <div class="meal-address">{_strip_emoji(restaurant.address)}</div>
 '''
         if hasattr(restaurant, 'cuisine_type'):
-            html += f'<div class="meal-cuisine">🍜 {restaurant.cuisine_type}</div>'
+            html += f'<div class="meal-cuisine">菜系：{_strip_emoji(restaurant.cuisine_type)}</div>'
         if hasattr(restaurant, 'avg_price'):
-            html += f'<div class="meal-price">💰 人均 ¥{restaurant.avg_price:.0f}</div>'
+            html += f'<div class="meal-price">人均 ¥{restaurant.avg_price:.0f}</div>'
 
         image_url = _first_image(getattr(restaurant, "images", None))
         if image_url:
             safe_url = image_url.replace("&", "&amp;").replace('"', "&quot;")
-            html += f'<img class="meal-image" src="{safe_url}" alt="{restaurant.name}"/>'
+            alt_text = _strip_emoji(restaurant.name)
+            html += f'<img class="meal-image" src="{safe_url}" alt="{alt_text}"/>'
 
         html += '</div></div>'
         return html
@@ -721,11 +770,11 @@ class ExportService:
         """渲染行程贴士"""
         html = '''
 <div class="section tips-section">
-    <h2 class="section-title">💡 行程贴士</h2>
+    <h2 class="section-title">行程贴士</h2>
     <ul class="tips-list">
 '''
         for tip in tips:
-            html += f'<li>{tip}</li>'
+            html += f'<li>{_strip_emoji(tip)}</li>'
 
         html += '''
     </ul>
@@ -737,16 +786,16 @@ class ExportService:
         """渲染结构化分类行程贴士"""
         html = '''
 <div class="section tips-section">
-    <h2 class="section-title">💡 行程贴士</h2>
+    <h2 class="section-title">行程贴士</h2>
 '''
         for group in tips_grouped:
             html += f'''
     <div class="tips-category">
-        <h3 class="tips-category-title">{group.icon} {group.category}</h3>
+        <h3 class="tips-category-title">{_strip_emoji(group.category)}</h3>
         <ul class="tips-list">
 '''
             for tip in group.tips:
-                html += f'<li>{tip}</li>'
+                html += f'<li>{_strip_emoji(tip)}</li>'
             html += '''
         </ul>
     </div>
@@ -818,7 +867,7 @@ class ExportService:
             from reportlab.lib.units import cm
             from reportlab.lib.utils import ImageReader
             from reportlab.pdfbase import pdfmetrics
-            from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+            from reportlab.pdfbase.ttfonts import TTFont
             from reportlab.platypus import (
                 Image,
                 KeepTogether,
@@ -836,9 +885,13 @@ class ExportService:
             ) from e
 
         opts = options or ExportOptions()
-        font_name = "STSong-Light"
-        if font_name not in pdfmetrics.getRegisteredFontNames():
-            pdfmetrics.registerFont(UnicodeCIDFont(font_name))
+
+        # 自动检测系统中文字体（TTF/TTC），优先使用常见 CJK 字体
+        font_name = self._register_reportlab_cjk_font(pdfmetrics, TTFont)
+
+        def safe_text(text: Any) -> str:
+            """reportlab 文本安全处理：先去 emoji，再转义 XML 特殊字符。"""
+            return self._escape_pdf_text(_strip_emoji(text))
 
         def make_style(name: str, **kwargs) -> ParagraphStyle:
             defaults = {"fontName": font_name, "wordWrap": "CJK"}
@@ -869,9 +922,9 @@ class ExportService:
         story.append(Spacer(1, 0.35 * cm))
         story.append(Paragraph("行程规划报告", subtitle_style))
         story.append(Spacer(1, 2.4 * cm))
-        story.append(Paragraph(self._escape_pdf_text(trip_data.trip_name), trip_name_style))
+        story.append(Paragraph(safe_text(trip_data.trip_name), trip_name_style))
         story.append(Spacer(1, 1.4 * cm))
-        story.append(Paragraph(f"目的地：{self._escape_pdf_text(trip_data.destination)}", cover_meta_style))
+        story.append(Paragraph(f"目的地：{safe_text(trip_data.destination)}", cover_meta_style))
         story.append(Paragraph(f"日期：{trip_data.start_date} 至 {trip_data.end_date}", cover_meta_style))
         story.append(Paragraph(f"天数：{trip_data.total_days} 天", cover_meta_style))
 
@@ -887,14 +940,14 @@ class ExportService:
             # ---- 概览 ----
             story.append(Paragraph("行程概览", section_title_style))
             rows: List[List[Any]] = [
-                ["目的地", self._escape_pdf_text(trip_data.destination)],
+                ["目的地", safe_text(trip_data.destination)],
                 ["行程时间", f"{trip_data.start_date} 至 {trip_data.end_date}"],
                 ["行程天数", f"{trip_data.total_days} 天"],
             ]
             if opts.include_budget and trip_data.budget:
                 rows.append(["预算总额", f"¥{trip_data.budget.total_budget:.2f}"])
             if opts.include_highlights and trip_data.trip_highlights:
-                rows.append(["行程亮点", "、".join(str(h) for h in trip_data.trip_highlights[:5])])
+                rows.append(["行程亮点", "、".join(safe_text(h) for h in trip_data.trip_highlights[:5])])
             overview = Table(rows, colWidths=[4.2 * cm, None])
             overview.setStyle(TableStyle([
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
@@ -911,7 +964,7 @@ class ExportService:
             for day in trip_data.days:
                 weather_text = ""
                 if opts.include_weather and day.weather:
-                    parts = [day.weather.weather_type or ""]
+                    parts = [safe_text(day.weather.weather_type or "")]
                     if day.weather.temp_low is not None and day.weather.temp_high is not None:
                         parts.append(f"{day.weather.temp_low}-{day.weather.temp_high}℃")
                     weather_text = " ".join(p for p in parts if p)
@@ -920,22 +973,22 @@ class ExportService:
                     day_header += f"（{weather_text}）"
                 header_block = [Paragraph(day_header, day_title_style)]
                 if day.day_theme:
-                    header_block.append(Paragraph(f"主题：{self._escape_pdf_text(day.day_theme)}", theme_style))
+                    header_block.append(Paragraph(f"主题：{safe_text(day.day_theme)}", theme_style))
                 story.append(KeepTogether(header_block))
 
                 for item in day.items:
                     block: List[Any] = []
-                    place_name = self._escape_pdf_text(item.place.name)
+                    place_name = safe_text(item.place.name)
                     block.append(Paragraph(
                         f"{item.start_time} - {item.end_time}　{place_name}",
                         item_title_style,
                     ))
                     if item.activity:
-                        block.append(Paragraph(f"活动：{self._escape_pdf_text(item.activity)}", body_style))
+                        block.append(Paragraph(f"活动：{safe_text(item.activity)}", body_style))
                     if item.place.address:
-                        block.append(Paragraph(f"地址：{self._escape_pdf_text(item.place.address)}", small_style))
+                        block.append(Paragraph(f"地址：{safe_text(item.place.address)}", small_style))
                     for tip in (item.tips or [])[:2]:
-                        block.append(Paragraph(f"贴士：{self._escape_pdf_text(tip)}", tip_style))
+                        block.append(Paragraph(f"贴士：{safe_text(tip)}", tip_style))
                     image_url = _first_image(item.place.images, item.place.cover_image)
                     if image_url:
                         image_flowable = self._pdf_image_flowable(image_url, 10.5 * cm, 6.5 * cm, tmp_dir)
@@ -949,11 +1002,11 @@ class ExportService:
                     if meal is None:
                         continue
                     block = []
-                    block.append(Paragraph(f"{meal_type}：{self._escape_pdf_text(meal.name)}", meal_title_style))
+                    block.append(Paragraph(f"{meal_type}：{safe_text(meal.name)}", meal_title_style))
                     if getattr(meal, "address", None):
-                        block.append(Paragraph(f"地址：{self._escape_pdf_text(meal.address)}", small_style))
+                        block.append(Paragraph(f"地址：{safe_text(meal.address)}", small_style))
                     if getattr(meal, "cuisine_type", None):
-                        block.append(Paragraph(f"菜系：{self._escape_pdf_text(meal.cuisine_type)}", small_style))
+                        block.append(Paragraph(f"菜系：{safe_text(meal.cuisine_type)}", small_style))
                     if getattr(meal, "avg_price", None):
                         block.append(Paragraph(f"人均：¥{meal.avg_price:.0f}", small_style))
                     image_url = _first_image(getattr(meal, "images", None))
@@ -974,14 +1027,14 @@ class ExportService:
                 if trip_data.trip_tips_grouped:
                     for group in trip_data.trip_tips_grouped:
                         story.append(Paragraph(
-                            f"{self._escape_pdf_text(group.icon)} {self._escape_pdf_text(group.category)}",
+                            safe_text(group.category),
                             tips_category_style,
                         ))
                         for tip in group.tips:
-                            story.append(Paragraph(f"· {self._escape_pdf_text(tip)}", tip_style))
+                            story.append(Paragraph(f"· {safe_text(tip)}", tip_style))
                 else:
                     for tip in trip_data.trip_tips:
-                        story.append(Paragraph(f"· {self._escape_pdf_text(tip)}", tip_style))
+                        story.append(Paragraph(f"· {safe_text(tip)}", tip_style))
 
             # ---- 页脚 ----
             story.append(Spacer(1, 1.2 * cm))
@@ -1005,6 +1058,67 @@ class ExportService:
                 onLaterPages=self._reportlab_page_callback,
             )
             return buffer.getvalue()
+
+    @staticmethod
+    def _register_reportlab_cjk_font(pdfmetrics, TTFont) -> str:
+        """
+        自动检测并注册系统中可用的 CJK 中文字体（TTF/TTC）。
+
+        按优先级在 Windows / macOS / Linux 上搜索常见中文字体，
+        找到第一个可用的就注册并返回字体名称。
+        全部找不到时回退到 Helvetica（英文会正常，中文变方块），
+        但会输出 warning 日志提醒安装字体。
+        """
+        system = platform.system()
+
+        # 各平台常见中文字体路径（按优先级排列）
+        if system == "Windows":
+            font_candidates = [
+                ("Microsoft YaHei", r"C:\Windows\Fonts\msyh.ttc", 0),
+                ("SimSun", r"C:\Windows\Fonts\simsun.ttc", 0),
+                ("SimHei", r"C:\Windows\Fonts\simhei.ttf", None),
+                ("KaiTi", r"C:\Windows\Fonts\simkai.ttf", None),
+            ]
+        elif system == "Darwin":  # macOS
+            font_candidates = [
+                ("PingFang SC", "/System/Library/Fonts/PingFang.ttc", 0),
+                ("STHeiti", "/System/Library/Fonts/STHeiti Medium.ttc", 0),
+                ("Arial Unicode MS", "/Library/Fonts/Arial Unicode.ttf", None),
+            ]
+        else:  # Linux
+            font_candidates = [
+                ("NotoSansSC", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
+                ("NotoSansSC", "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc", 0),
+                ("WenQuanYiZenHei", "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", 0),
+                ("WenQuanYiMicroHei", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc", 0),
+                ("DroidSansFallback", "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", None),
+                ("NotoSansSC", "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", 0),
+                ("NotoSansSC", "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", 0),
+            ]
+
+        registered = set(pdfmetrics.getRegisteredFontNames())
+
+        for font_name, font_path, subfont_index in font_candidates:
+            if font_name in registered:
+                logger.debug("reportlab 字体已注册: %s", font_name)
+                return font_name
+            if os.path.exists(font_path):
+                try:
+                    if subfont_index is not None:
+                        pdfmetrics.registerFont(TTFont(font_name, font_path, subfontIndex=subfont_index))
+                    else:
+                        pdfmetrics.registerFont(TTFont(font_name, font_path))
+                    logger.info("reportlab 注册中文字体成功: %s (%s)", font_name, font_path)
+                    return font_name
+                except Exception as e:
+                    logger.warning("reportlab 注册字体失败 %s: %s", font_path, e)
+
+        # 找不到中文字体的回退
+        logger.warning(
+            "未找到可用的中文字体，PDF 中的中文可能显示为方块。"
+            "Linux 请安装 fonts-noto-cjk 或 wqy-zenhei。"
+        )
+        return "Helvetica"
 
     @staticmethod
     def _escape_pdf_text(text: Any) -> str:
@@ -1086,7 +1200,7 @@ class ExportService:
 }
 
 body {
-    font-family: "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    font-family: "Noto Sans CJK SC", "Source Han Sans CN", "WenQuanYi Zen Hei", "Microsoft YaHei", "SimSun", sans-serif;
     font-size: 11pt;
     line-height: 1.6;
     color: #333;
