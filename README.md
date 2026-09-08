@@ -40,7 +40,8 @@
 
 <img width="2372" height="1758" alt="屏幕截图_8-9-2026_204536_122 51 82 50 (1)" src="https://github.com/user-attachments/assets/2527e910-619f-4354-a859-9fe0864725bf" />
 <img width="2372" height="5014" alt="屏幕截图_8-9-2026_204517_122 51 82 50" src="https://github.com/user-attachments/assets/023aca80-616b-46e3-bd3c-e77016ac8de2" />
-<img width="1206" height="1167" alt="1" src="https://github.com/user-attachments/assets/9de90201-9bbf-415f-9b03-52f5c2090490" />
+<img width="2372" height="1696" alt="屏幕截图_8-9-2026_21353_122 51 82 50" src="https://github.com/user-attachments/assets/27095318-8825-47f3-933e-c76939e1aee4" />
+
 
 ## 快速开始
 
