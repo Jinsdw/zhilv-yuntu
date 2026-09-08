@@ -34,6 +34,7 @@ import {
 import type { MenuProps } from 'antd'
 import { useNavigate } from 'react-router-dom'
 
+import ExportProgressModal, { type ExportStatus } from '@/components/export/ExportProgressModal'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { ROUTES } from '@/router/routes'
 import { exportApi, tripApi, type HistoryQueryParams } from '@/services/api'
@@ -98,6 +99,13 @@ export default function History() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [batchBusy, setBatchBusy] = useState(false)
+  const [exportModal, setExportModal] = useState<{
+    open: boolean
+    format: 'markdown' | 'pdf'
+    status: ExportStatus
+    errorMessage?: string
+  }>({ open: false, format: 'markdown', status: 'running' })
+  const exporting = exportModal.open
 
   // 分页查询参数：依赖项变化时重置到第 1 页
   useEffect(() => {
@@ -212,12 +220,23 @@ export default function History() {
   }
 
   const handleExport = async (item: TripHistorySummary, format: 'markdown' | 'pdf') => {
+    if (exporting) return
+    setExportModal({ open: true, format, status: 'running', errorMessage: undefined })
     try {
       await exportApi[format](item.id, `${item.destination}-行程.${format === 'pdf' ? 'pdf' : 'md'}`)
+      setExportModal((current) => ({ ...current, status: 'success' }))
       message.success('导出成功，已开始下载')
     } catch (error) {
-      message.error(toErrorMessage(error, '导出失败'))
+      setExportModal((current) => ({
+        ...current,
+        status: 'error',
+        errorMessage: toErrorMessage(error, '导出失败'),
+      }))
     }
+  }
+
+  const closeExportModal = () => {
+    setExportModal((current) => ({ ...current, open: false }))
   }
 
   const openTripDetail = (item: TripHistorySummary) => {
@@ -437,6 +456,7 @@ export default function History() {
                       查看
                     </Button>
                     <Dropdown
+                      disabled={exporting}
                       menu={{
                         items: rowActions,
                         onClick: ({ key, domEvent }) => {
@@ -527,6 +547,15 @@ export default function History() {
           onChange={setPage}
         />
       </Flex>
+
+      {/* 导出进度弹窗 */}
+      <ExportProgressModal
+        open={exportModal.open}
+        format={exportModal.format}
+        status={exportModal.status}
+        errorMessage={exportModal.errorMessage}
+        onClose={closeExportModal}
+      />
     </Flex>
   )
 }

@@ -30,6 +30,7 @@ import {
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import BudgetPanel from '@/components/budget/BudgetPanel'
+import ExportProgressModal, { type ExportStatus } from '@/components/export/ExportProgressModal'
 import MapPanel from '@/components/map/MapPanel'
 import DayTimeline from '@/components/trip/DayTimeline'
 import WeatherPanel from '@/components/weather/WeatherPanel'
@@ -57,7 +58,13 @@ export default function Result() {
   })
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState(false)
-  const [exporting, setExporting] = useState(false)
+  const [exportModal, setExportModal] = useState<{
+    open: boolean
+    format: 'markdown' | 'pdf'
+    status: ExportStatus
+    errorMessage?: string
+  }>({ open: false, format: 'markdown', status: 'running' })
+  const exporting = exportModal.open
   const [activeDay, setActiveDay] = useState<number>(1)
 
   const weatherList = useMemo(() => (trip?.days ?? []).map((day) => ({ date: day.itinerary_date, weather: day.weather })), [trip])
@@ -145,15 +152,23 @@ export default function Result() {
   }
 
   const handleExport = async (format: 'markdown' | 'pdf') => {
-    setExporting(true)
+    if (exporting) return
+    setExportModal({ open: true, format, status: 'running', errorMessage: undefined })
     try {
       await exportApi[format](trip.trip_id, `${trip.destination}-行程.${format === 'pdf' ? 'pdf' : 'md'}`)
+      setExportModal((current) => ({ ...current, status: 'success' }))
       message.success('导出成功，已开始下载')
     } catch (error) {
-      message.error(toErrorMessage(error, '导出失败'))
-    } finally {
-      setExporting(false)
+      setExportModal((current) => ({
+        ...current,
+        status: 'error',
+        errorMessage: toErrorMessage(error, '导出失败'),
+      }))
     }
+  }
+
+  const closeExportModal = () => {
+    setExportModal((current) => ({ ...current, open: false }))
   }
 
   const exportMenuItems = [
@@ -428,6 +443,14 @@ export default function Result() {
           )}
         </div>
       )}
+      {/* 导出进度弹窗 */}
+      <ExportProgressModal
+        open={exportModal.open}
+        format={exportModal.format}
+        status={exportModal.status}
+        errorMessage={exportModal.errorMessage}
+        onClose={closeExportModal}
+      />
     </Flex>
   )
 }
