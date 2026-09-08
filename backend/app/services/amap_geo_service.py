@@ -29,6 +29,7 @@ AMAP_REGEO_URL = "https://restapi.amap.com/v3/geocode/regeo"
 AMAP_PLACE_TEXT_URL = "https://restapi.amap.com/v3/place/text"
 AMAP_PLACE_DETAIL_URL_V3 = "https://restapi.amap.com/v3/place/detail"
 AMAP_PLACE_DETAIL_URL_V5 = "https://restapi.amap.com/v5/place/detail"
+AMAP_DISTRICT_URL = "https://restapi.amap.com/v3/config/district"
 
 
 class CityMatchType(Enum):
@@ -246,6 +247,40 @@ class AmapGeoService:
         }
         params.update(self._build_city_params(city, city_match_type))
         return params
+
+    async def get_city_adcode(self, city: str) -> Optional[str]:
+        """
+        获取城市的 adcode（行政区查询接口）
+
+        用于坐标校验：把目标城市解析为 adcode，再与 POI/geocode 结果做归属比对。
+
+        Args:
+            city: 城市名（中文/拼音）
+
+        Returns:
+            adcode 字符串或 None
+        """
+        if not city:
+            return None
+        params = {
+            "key": self._api_key,
+            "keywords": city,
+            "subdistrict": 0,
+            "level": "city",
+            "output": "json",
+        }
+        try:
+            data = await self._request_with_retry(AMAP_DISTRICT_URL, params)
+            if data.get("status") != "1":
+                return None
+            districts = data.get("districts") or []
+            if not districts:
+                return None
+            adcode = (districts[0].get("adcode") or "").strip()
+            return adcode or None
+        except Exception as e:
+            logger.warning(f"获取城市 adcode 失败 [{city}]: {e}")
+            return None
 
     def regeo_params(
         self,

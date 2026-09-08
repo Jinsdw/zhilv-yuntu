@@ -64,6 +64,7 @@ def _poi(
     area: str = "锦江区",
     tag: str = "热门",
     rating: Optional[float] = 4.5,
+    adcode: str = "510104",
 ) -> POIInfo:
     return POIInfo(
         id=pid,
@@ -79,6 +80,7 @@ def _poi(
         tag=tag,
         rating=rating,
         cost=None,
+        adcode=adcode,
         opening_hours="09:00-18:00",
         info="OK",
         status=True,
@@ -228,7 +230,10 @@ class TestFilterAndRank:
 class TestPlaceCandidateService:
     @pytest.fixture
     def cache(self):
-        return CacheService(config=CacheConfig(prefix="test_place"))
+        # 每次测试用独立前缀，避免 Redis 缓存跨测试运行污染
+        import uuid
+
+        return CacheService(config=CacheConfig(prefix=f"test_place_{uuid.uuid4().hex[:12]}"))
 
     @pytest.fixture
     def map_mock(self):
@@ -304,6 +309,53 @@ class TestPlaceCandidateService:
         assert hit is True
         assert pois
         assert map_mock.search_poi.await_count == first_calls
+
+    @pytest.mark.asyncio
+    async def test_fetch_raw_filters_foreign_and_wrong_city(self, service, map_mock):
+        """坐标校验应过滤国外坐标与异地（adcode 不匹配）POI。"""
+        map_mock.search_poi = AsyncMock(
+            return_value=_ok_result(
+                [
+                    _poi("p1", "宽窄巷子", adcode="510104"),
+                    _poi("p2", "西湖", lat=30.25, lng=120.15, adcode="330106"),
+                    _poi("p3", "时代广场", lat=40.758, lng=-73.985, adcode="360111"),
+                ]
+            )
+        )
+        map_mock.search_nearby = AsyncMock(return_value=_ok_result([], keyword="景点"))
+
+        req = _future_request()
+        plan = service.build_query_plan(req)
+        pois, warnings, _ = await service.fetch_raw(plan, include_nearby=True)
+
+        names = [p.name for p in pois]
+        assert "宽窄巷子" in names
+        assert "西湖" not in names
+        assert "时代广场" not in names
+        assert any("坐标校验" in w for w in warnings)
+
+    @pytest.mark.asyncio
+    async def test_fetch_raw_keeps_pois_without_adcode(self, service, map_mock):
+        """拿不到目标城市 adcode 或 POI adcode 时 fail-open，不误伤。"""
+        map_mock.search_poi = AsyncMock(
+            return_value=_ok_result(
+                [
+                    _poi("p1", "宽窄巷子", adcode=""),
+                    _poi("p2", "杜甫草堂", adcode=""),
+                ]
+            )
+        )
+        map_mock.get_district = AsyncMock(return_value=[])
+        map_mock.search_nearby = AsyncMock(return_value=_ok_result([], keyword="景点"))
+
+        req = _future_request()
+        plan = service.build_query_plan(req)
+        pois, warnings, _ = await service.fetch_raw(plan, include_nearby=True)
+
+        names = [p.name for p in pois]
+        assert "宽窄巷子" in names
+        assert "杜甫草堂" in names
+        assert not any("坐标校验" in w for w in warnings)
 
     @pytest.mark.asyncio
     async def test_empty_pool_on_total_fetch_failure(self, service, map_mock):

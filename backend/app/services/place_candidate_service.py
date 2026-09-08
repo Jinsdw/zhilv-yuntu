@@ -46,6 +46,8 @@ from .map_service import (
     init_map_service,
 )
 
+from .geo_validation import validate_coordinate_for_city
+
 # ---------------------------------------------------------------------------
 # 常量
 # ---------------------------------------------------------------------------
@@ -603,6 +605,40 @@ def poi_to_candidate(poi: POIInfo, *, source: str = "amap") -> Optional[Candidat
     )
 
 
+def filter_pois_by_city(
+    pois: Sequence[POIInfo],
+    expected_city: str,
+    expected_city_adcode: Optional[str] = None,
+) -> tuple[list[POIInfo], int]:
+    """
+    坐标/行政区校验过滤（5.3.4 前置）：
+
+    - 坐标缺失/非法或不在中国境内 → 丢弃（拦截定位到国外）
+    - 目标城市 adcode 与 POI adcode 均可用时，行政区归属不匹配 → 丢弃（拦截异地 POI）
+    - 无法判定时 fail-open 保留，避免误伤
+
+    返回 (保留列表, 丢弃数量)。
+    """
+    kept: list[POIInfo] = []
+    dropped = 0
+    for poi in pois:
+        lng = poi.location.longitude if poi.location is not None else None
+        lat = poi.location.latitude if poi.location is not None else None
+        ok, _ = validate_coordinate_for_city(
+            longitude=lng,
+            latitude=lat,
+            adcode=poi.adcode or "",
+            city=poi.city or "",
+            expected_city_adcode=expected_city_adcode,
+            expected_city=expected_city,
+        )
+        if ok:
+            kept.append(poi)
+        else:
+            dropped += 1
+    return kept, dropped
+
+
 def _is_non_travel(place: CandidatePlace) -> bool:
     blob = f"{place.name}{' '.join(place.tags)}{place.address}"
     return any(h in blob for h in NON_TRAVEL_TYPE_HINTS)
@@ -853,6 +889,7 @@ class PlaceCandidateService:
         self.config = config or PlaceCandidateConfig()
         self._cache = cache if cache is not None else cache_service
         self._last_request_time = 0.0
+        self._city_meta_cache: dict[str, dict[str, Any]] = {}
 
     def _ensure_map(self) -> MapService:
         if self._map is not None:
@@ -978,19 +1015,34 @@ class PlaceCandidateService:
             await asyncio.sleep(delay - elapsed)
         self._last_request_time = time.time()
 
+    async def _resolve_city_meta(
+        self, city: str
+    ) -> Optional[dict[str, Any]]:
+        """返回 {center: (lng, lat) | None, adcode: str}，失败返回 None。带进程内缓存。"""
+        if city in self._city_meta_cache:
+            return self._city_meta_cache[city]
+        meta: Optional[dict[str, Any]] = None
+        try:
+            await self._rate_limit()
+            districts = await self._ensure_map().get_district(city, subdistrict=0)
+            if districts:
+                first = districts[0]
+                center = None
+                if first.center is not None:
+                    center = (first.center.longitude, first.center.latitude)
+                meta = {"center": center, "adcode": (first.adcode or "")}
+        except Exception as e:
+            logger.warning(f"获取城市元数据失败 [{city}]: {e}")
+        if meta is not None:
+            self._city_meta_cache[city] = meta
+        return meta
+
     async def _resolve_city_center(
         self, city: str
     ) -> Optional[tuple[float, float]]:
         """返回 (lng, lat)。"""
-        try:
-            await self._rate_limit()
-            districts = await self._ensure_map().get_district(city, subdistrict=0)
-            if districts and districts[0].center is not None:
-                c = districts[0].center
-                return (c.longitude, c.latitude)
-        except Exception as e:
-            logger.warning(f"获取城市中心失败 [{city}]: {e}")
-        return None
+        meta = await self._resolve_city_meta(city)
+        return (meta or {}).get("center") if meta else None
 
     async def _execute_task(
         self,
@@ -1099,6 +1151,17 @@ class PlaceCandidateService:
             raise CandidateFetchError(
                 f"全部搜索失败（{errors} 路），城市={plan.city}"
             )
+
+        # 坐标/行政区校验：过滤越界（国外/其他城市）POI
+        city_meta = await self._resolve_city_meta(plan.city)
+        city_adcode = (city_meta or {}).get("adcode") or None
+        kept, dropped = filter_pois_by_city(results, plan.city, city_adcode)
+        if dropped:
+            warnings.append(
+                f"坐标校验：过滤 {dropped} 个越界/异地坐标（城市={plan.city}）"
+            )
+        results = kept
+
         if not results:
             warnings.append("地图未返回任何 POI")
         return results, warnings, cache_hits

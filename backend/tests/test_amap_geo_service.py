@@ -662,3 +662,50 @@ class TestSingleton:
         import app.services.amap_geo_service as mod
 
         mod.amap_geo = None
+
+
+def _district_api_response(**kwargs: Any) -> Dict[str, Any]:
+    """构造高德行政区查询 API 原始响应"""
+    data = {
+        "status": "1",
+        "info": "OK",
+        "districts": [
+            {
+                "name": "成都市",
+                "adcode": "510100",
+                "level": "city",
+                "center": "104.066541,30.572269",
+                "citycode": "028",
+            }
+        ],
+    }
+    data.update(kwargs)
+    return data
+
+
+class TestGetCityAdcode:
+    """get_city_adcode（行政区查询 → 目标城市 adcode，供坐标校验）"""
+
+    @pytest.mark.asyncio
+    async def test_get_city_adcode_ok(self, service):
+        service._request_with_retry = AsyncMock(return_value=_district_api_response())
+        adcode = await service.get_city_adcode("成都")
+        assert adcode == "510100"
+
+    @pytest.mark.asyncio
+    async def test_get_city_adcode_api_failure(self, service):
+        service._request_with_retry = AsyncMock(
+            return_value={"status": "0", "info": "NO_DATA"}
+        )
+        assert await service.get_city_adcode("成都") is None
+
+    @pytest.mark.asyncio
+    async def test_get_city_adcode_empty_districts(self, service):
+        service._request_with_retry = AsyncMock(
+            return_value={"status": "1", "info": "OK", "districts": []}
+        )
+        assert await service.get_city_adcode("成都") is None
+
+    @pytest.mark.asyncio
+    async def test_get_city_adcode_empty_city(self, service):
+        assert await service.get_city_adcode("") is None

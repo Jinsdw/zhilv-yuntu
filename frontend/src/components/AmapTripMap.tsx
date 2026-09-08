@@ -34,6 +34,9 @@ export const DAY_COLORS = [
 /** 地图默认中心（北京；渲染点位后立即自适应视野，仅作首屏兜底） */
 const DEFAULT_CENTER: [number, number] = [116.397428, 39.90923]
 
+/** 中国境内粗略边界（与后端 geo_validation 对齐，拦截定位到国外的坐标） */
+const CHINA_BOUNDS = { minLng: 73, maxLng: 136, minLat: 3, maxLat: 54 } as const
+
 export interface AmapTripMapProps {
   /** 每日行程数据 */
   days: ItineraryDay[]
@@ -61,6 +64,8 @@ function toPosition(item: ItineraryItem): [number, number] | null {
   const { longitude, latitude } = item.place.coordinate ?? {}
   if (typeof longitude !== 'number' || typeof latitude !== 'number') return null
   if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null
+  if (longitude < CHINA_BOUNDS.minLng || longitude > CHINA_BOUNDS.maxLng) return null
+  if (latitude < CHINA_BOUNDS.minLat || latitude > CHINA_BOUNDS.maxLat) return null
   return [longitude, latitude]
 }
 

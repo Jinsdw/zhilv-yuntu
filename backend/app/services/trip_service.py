@@ -57,6 +57,7 @@ from app.services.amap_geo_service import (
     init_amap_geo_service,
 )
 from app.services.cache_service import CacheNamespace, cache_service
+from app.services.geo_validation import validate_coordinate_for_city
 from app.services.place_candidate_service import (
     CandidatePool,
     PlaceCandidateService,
@@ -180,6 +181,7 @@ class TripService:
         self._storage = storage or storage_service
         self._cache = cache or cache_service
         self._llm = llm
+        self._city_adcode_cache: Dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # 服务懒加载（避免启动期失败 / 循环导入）
@@ -208,6 +210,45 @@ class TripService:
                 logger.warning(f"weather_service 初始化失败: {e}")
         self._weather = svc
         return svc
+
+    def _resolve_city_adcode(self, city: str) -> Optional[str]:
+        """解析目标城市 adcode（行政区查询接口，进程内缓存）。失败返回 None（校验降级为仅边界）。"""
+        if not city:
+            return None
+        if city in self._city_adcode_cache:
+            return self._city_adcode_cache[city]
+        amap = self._get_amap_geo()
+        if amap is None:
+            return None
+        resolver = getattr(amap, "get_city_adcode", None)
+        if not callable(resolver):
+            return None
+        try:
+            adcode = _run_async(resolver(city))
+        except Exception as e:
+            logger.warning(f"解析城市 adcode 失败 [{city}]: {e}")
+            return None
+        if not isinstance(adcode, str) or not adcode.strip():
+            return None
+        self._city_adcode_cache[city] = adcode
+        return adcode
+
+    @staticmethod
+    def _geocode_coord_valid(
+        result: GeocodeResult,
+        city: str,
+        city_adcode: Optional[str],
+    ) -> Tuple[bool, str]:
+        """校验 geocode 返回的坐标是否可用于目标城市行程。"""
+        return validate_coordinate_for_city(
+            longitude=result.longitude,
+            latitude=result.latitude,
+            adcode=result.adcode or "",
+            province=result.province or "",
+            city=result.city or "",
+            expected_city_adcode=city_adcode,
+            expected_city=city,
+        )
 
     # ================================================================
     # 6.1.2 + 6.1.3 主编排流程
@@ -379,13 +420,14 @@ class TripService:
             return trip
 
         city = trip.destination
+        city_adcode = self._resolve_city_adcode(city)
         new_days: List[ItineraryDay] = []
         photo_cache: Dict[str, List[str]] = {}
         for day in trip.days:
             new_items: List[ItineraryItem] = []
             for item in day.items:
                 new_place = self._geocode_place(
-                    item.place, city, amap, warnings, day.day_number
+                    item.place, city, amap, warnings, day.day_number, city_adcode
                 )
                 new_place = self._enrich_place_photos(
                     new_place, city, amap, warnings, f"第{day.day_number}天", photo_cache
@@ -393,7 +435,7 @@ class TripService:
                 new_items.append(item.model_copy(update={"place": new_place}))
             new_day = day.model_copy(update={"items": new_items})
             new_day = self._enrich_day_meals_hotel(
-                new_day, city, amap, warnings, photo_cache
+                new_day, city, amap, warnings, photo_cache, city_adcode
             )
             new_days.append(new_day)
 
@@ -406,6 +448,7 @@ class TripService:
         amap: AmapGeoService,
         warnings: List[str],
         day_number: int,
+        city_adcode: Optional[str],
     ) -> PlaceInfo:
         """对单个 PlaceInfo 调 geocode。已有真实坐标/地址则跳过。"""
         # 已是真实坐标则跳过
@@ -426,6 +469,13 @@ class TripService:
 
         if result is None or not result.is_valid():
             warnings.append(f"第{day_number}天 [{place.name}] geocode 无结果")
+            return place
+
+        ok, reason = self._geocode_coord_valid(result, city, city_adcode)
+        if not ok:
+            warnings.append(
+                f"第{day_number}天 [{place.name}] geocode 坐标校验未通过: {reason}"
+            )
             return place
 
         coord = Coordinate(
@@ -489,6 +539,7 @@ class TripService:
         amap: AmapGeoService,
         warnings: List[str],
         photo_cache: Dict[str, List[str]],
+        city_adcode: Optional[str],
     ) -> ItineraryDay:
         """对 day 的餐饮/酒店做 geocode 补全。"""
         updates: Dict[str, Any] = {}
@@ -514,6 +565,12 @@ class TripService:
                 continue
             if result is None or not result.is_valid():
                 continue
+            ok, reason = self._geocode_coord_valid(result, city, city_adcode)
+            if not ok:
+                warnings.append(
+                    f"第{day.day_number}天餐 [{meal.name}] geocode 坐标校验未通过: {reason}"
+                )
+                continue
             updated_meal = meal.model_copy(update={
                 "coordinate": Coordinate(
                     latitude=float(result.latitude),
@@ -536,6 +593,13 @@ class TripService:
                     f"第{day.day_number}天酒店 [{day.hotel.name}] geocode 失败: {e}"
                 )
                 result = None
+            if result is not None and result.is_valid():
+                ok, reason = self._geocode_coord_valid(result, city, city_adcode)
+                if not ok:
+                    warnings.append(
+                        f"第{day.day_number}天酒店 [{day.hotel.name}] geocode 坐标校验未通过: {reason}"
+                    )
+                    result = None
             if result is not None and result.is_valid():
                 updated_hotel = day.hotel.model_copy(update={
                     "coordinate": Coordinate(
@@ -923,18 +987,21 @@ class TripService:
         if day_number < 1 or day_number > len(trip.days):
             return trip
 
+        city_adcode = self._resolve_city_adcode(city)
         idx = day_number - 1
         day = trip.days[idx]
 
         new_items: List[ItineraryItem] = []
         for item in day.items:
             new_place = self._geocode_place(
-                item.place, city, amap, warnings, day_number
+                item.place, city, amap, warnings, day_number, city_adcode
             )
             new_items.append(item.model_copy(update={"place": new_place}))
 
         new_day = day.model_copy(update={"items": new_items})
-        new_day = self._enrich_day_meals_hotel(new_day, city, amap, warnings, photo_cache={})
+        new_day = self._enrich_day_meals_hotel(
+            new_day, city, amap, warnings, photo_cache={}, city_adcode=city_adcode
+        )
 
         new_days = list(trip.days)
         new_days[idx] = new_day

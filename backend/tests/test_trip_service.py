@@ -151,7 +151,12 @@ def _placeholder_trip(request: TripRequest, *, days: int = 2) -> TripResponse:
     )
 
 
-def _geocode_result(name: str = "测试", lat: float = 30.67, lng: float = 104.06) -> GeocodeResult:
+def _geocode_result(
+    name: str = "测试",
+    lat: float = 30.67,
+    lng: float = 104.06,
+    adcode: str = "510104",
+) -> GeocodeResult:
     return GeocodeResult(
         status=True,
         formatted_address=f"{name}地址",
@@ -160,7 +165,7 @@ def _geocode_result(name: str = "测试", lat: float = 30.67, lng: float = 104.0
         district="锦江区",
         street="测试路",
         street_number="1号",
-        adcode="510104",
+        adcode=adcode,
         citycode="028",
         longitude=lng,
         latitude=lat,
@@ -491,6 +496,80 @@ class TestEnrichMap:
 
         result = svc.generate_trip(request)
         assert any("geocode 无结果" in w for w in result.metadata["enrich_warnings"])
+
+    def test_geocode_foreign_coord_rejected(self):
+        """geocode 返回国外坐标应被坐标校验拦截，保留占位并记 warning。"""
+        request = _future_request(destination="成都")
+        placeholder = _placeholder_trip(request)
+        agent = MagicMock()
+        agent.plan.return_value = placeholder
+
+        amap = MagicMock()
+        amap.geocode = AsyncMock(
+            return_value=_geocode_result(lat=40.758, lng=-73.985, adcode="360111")
+        )
+        amap.get_city_adcode = AsyncMock(return_value="510100")
+        cache = MagicMock()
+        cache.get.return_value = None
+        storage = MagicMock()
+        storage.create_trip.return_value = "trip-1"
+
+        svc = _build_service(agent=agent, amap_geo=amap, storage=storage, cache=cache)
+        svc._get_weather_service = lambda: None
+
+        result = svc.generate_trip(request)
+        first_place = result.days[0].items[0].place
+        assert first_place.coordinate.latitude == 0.0  # 仍是占位
+        assert any("坐标校验未通过" in w for w in result.metadata["enrich_warnings"])
+
+    def test_geocode_wrong_city_adcode_rejected(self):
+        """geocode 命中异地城市（adcode 不匹配）应被校验拦截。"""
+        request = _future_request(destination="成都")
+        placeholder = _placeholder_trip(request)
+        agent = MagicMock()
+        agent.plan.return_value = placeholder
+
+        amap = MagicMock()
+        amap.geocode = AsyncMock(
+            return_value=_geocode_result(lat=30.25, lng=120.15, adcode="330106")
+        )
+        amap.get_city_adcode = AsyncMock(return_value="510100")
+        cache = MagicMock()
+        cache.get.return_value = None
+        storage = MagicMock()
+        storage.create_trip.return_value = "trip-1"
+
+        svc = _build_service(agent=agent, amap_geo=amap, storage=storage, cache=cache)
+        svc._get_weather_service = lambda: None
+
+        result = svc.generate_trip(request)
+        first_place = result.days[0].items[0].place
+        assert first_place.coordinate.latitude == 0.0
+        assert any("坐标校验未通过" in w for w in result.metadata["enrich_warnings"])
+
+    def test_geocode_ok_with_city_adcode_match(self):
+        """adcode 归属匹配时校验通过，坐标正常回填。"""
+        request = _future_request(destination="成都")
+        placeholder = _placeholder_trip(request)
+        agent = MagicMock()
+        agent.plan.return_value = placeholder
+
+        amap = MagicMock()
+        amap.geocode = AsyncMock(return_value=_geocode_result(adcode="510104"))
+        amap.get_city_adcode = AsyncMock(return_value="510100")
+        cache = MagicMock()
+        cache.get.return_value = None
+        storage = MagicMock()
+        storage.create_trip.return_value = "trip-1"
+
+        svc = _build_service(agent=agent, amap_geo=amap, storage=storage, cache=cache)
+        svc._get_weather_service = lambda: None
+
+        result = svc.generate_trip(request)
+        first_place = result.days[0].items[0].place
+        assert first_place.coordinate.latitude == 30.67
+        assert first_place.coordinate.longitude == 104.06
+        assert not any("坐标校验" in w for w in result.metadata.get("enrich_warnings", []))
 
     def test_amap_geo_unavailable_records_warning(self):
         """amap_geo 服务不可用应记 warning 且不抛异常。"""
