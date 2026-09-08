@@ -13,7 +13,12 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # 安装系统依赖（含 WeasyPrint PDF 渲染所需原生库）
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 国内服务器直连 Debian 官方源较慢，先切换为清华镜像源（兼容 sources.list 与 debian.sources 两种格式）
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list 2>/dev/null || true; \
+    sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list 2>/dev/null || true; \
+    sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
+    sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
+    apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
     libpango-1.0-0 \
