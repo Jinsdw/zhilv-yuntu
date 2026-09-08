@@ -1,5 +1,5 @@
 """
-智旅云图 - LangGraph 主图
+山海拾光（智旅云图） - LangGraph 主图
 
 主图（planner_graph）：
     START → prefetch_rag → llm_plan ⇄ rag_tool_node

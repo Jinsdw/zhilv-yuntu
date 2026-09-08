@@ -1,5 +1,5 @@
 """
-智旅云图 - RAG 工具（Agent 可调用）
+山海拾光（智旅云图） - RAG 工具（Agent 可调用）
 
 将第四阶段 Retriever 封装为智谱/OpenAI 兼容的 function calling 工具。
 

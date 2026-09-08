@@ -1,5 +1,5 @@
 """
-智旅云图 - 向量库检索测试脚本
+山海拾光（智旅云图） - 向量库检索测试脚本
 """
 
 import os
@@ -172,7 +172,7 @@ def main():
     """主函数"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="智旅云图向量库检索测试")
+    parser = argparse.ArgumentParser(description="山海拾光（智旅云图）向量库检索测试")
     parser.add_argument("--query", type=str, help="查询文本")
     parser.add_argument("--city", type=str, help="限定城市")
     parser.add_argument("--top-k", type=int, default=5, help="返回数量")

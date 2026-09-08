@@ -1,7 +1,7 @@
 import { theme as antdTheme, type ThemeConfig } from 'antd'
 
 /**
- * 智旅云图设计令牌（v2 · 山海拾光）
+ * 山海拾光（智旅云图）设计令牌（v2 · 山海拾光）
  *
  * 设计读法（design-taste-frontend）：消费者向 AI 旅行规划产品重设计，
  * 以「温暖旅行编辑感 / 明信片杂志」视觉语言（奶油纸 + 陶土日出橙 + 暖墨 + 宋体衬线标题），

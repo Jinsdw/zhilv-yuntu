@@ -1,5 +1,5 @@
 """
-智旅云图 - LangGraph 节点函数
+山海拾光（智旅云图） - LangGraph 节点函数
 
 每个节点是纯函数：输入 state dict → 输出 state dict 的 patch。
 LangGraph 会自动 merge 这些 patch 到当前 state。

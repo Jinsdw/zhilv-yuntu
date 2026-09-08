@@ -1,5 +1,5 @@
 /*
- * 智旅云图 - 行程报告 PDF 样式表
+ * 山海拾光（智旅云图） - 行程报告 PDF 样式表
  * 
  * 设计说明：
  * - 使用系统字体，支持中文显示
@@ -20,7 +20,7 @@
 /* 页脚 */
 @page {
     @bottom-center {
-        content: "智旅云图 · 行程规划" "    第 " counter(page) " 页";
+        content: "山海拾光（智旅云图） · 行程规划" "    第 " counter(page) " 页";
         font-size: 9pt;
         color: #94a3b8;
     }

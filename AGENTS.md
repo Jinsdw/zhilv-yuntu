@@ -1,10 +1,10 @@
-# AGENTS.md — 智旅云图 (zhilv-yuntu)
+# AGENTS.md — 山海拾光（智旅云图） (zhilv-yuntu)
 
 > 本文件是 Codex 的项目记忆/指导文件，每次任务开始时应优先阅读，避免完整重读项目。
 > 详细背景见 `.cursor/rules/PROJECT_CONTEXT.md`，进度见 `.cursor/rules/PROGRESS.md` 与 `REPLICATION_TASKS.md`。
 
 ## 项目是什么
-- **智旅云图**：多 Agent 协同的智能旅游行程规划助手。
+- **山海拾光（智旅云图）**：多 Agent 协同的智能旅游行程规划助手。
 - 用户输入目的地/日期/预算/人数/偏好 → 生成结构化行程，并补充地图点位、天气、预算拆分、景点图片，支持 Markdown/PDF 导出与历史管理。
 - 技术栈：FastAPI + React 18 + LangChain/LangGraph + ChromaDB + Redis + 高德地图 API + SQLite。
 - LLM/Embedding：智谱大模型（`glm-4.6v-FlashX` 生成、`text-embedding-v4` 向量、`rerank` 重排），OpenAI 兼容接口。

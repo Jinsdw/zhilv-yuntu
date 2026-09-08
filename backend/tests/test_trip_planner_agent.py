@@ -1,5 +1,5 @@
 """
-智旅云图 - 行程规划 Agent 单元测试（LangGraph 版）
+山海拾光（智旅云图） - 行程规划 Agent 单元测试（LangGraph 版）
 
 测试范围：
 - 纯函数：build_user_prompt / extract_json_object / validate_and_repair

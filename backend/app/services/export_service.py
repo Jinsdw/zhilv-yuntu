@@ -1,5 +1,5 @@
 """
-智旅云图 - 导出服务
+山海拾光（智旅云图） - 导出服务
 
 提供行程数据的多格式导出功能：
 - JSON: 精简版行程数据导出
@@ -579,7 +579,7 @@ class ExportService:
 
         # 页脚
         lines.append("---")
-        lines.append("*智旅云图 · 智能行程规划*")
+        lines.append("*山海拾光（智旅云图） · 智能行程规划*")
         lines.append(f"*生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}*")
 
         return "\n".join(lines)
@@ -646,7 +646,7 @@ class ExportService:
         """渲染封面"""
         return f"""
 <div class="cover">
-    <div class="cover-title">智旅云图</div>
+    <div class="cover-title">山海拾光（智旅云图）</div>
     <div class="cover-subtitle">行程规划报告</div>
     <div class="cover-trip-name">{_strip_emoji(trip_data.trip_name)}</div>
     <div class="cover-meta">
@@ -810,7 +810,7 @@ class ExportService:
         return '''
 <div class="footer">
     <div class="footer-line"></div>
-    <div class="footer-text">智旅云图 · 智能行程规划</div>
+    <div class="footer-text">山海拾光（智旅云图） · 智能行程规划</div>
     <div class="footer-time">Generated at ''' + datetime.now().strftime("%Y-%m-%d %H:%M") + '''</div>
 </div>
 '''
@@ -917,7 +917,7 @@ class ExportService:
 
         # ---- 封面 ----
         story.append(Spacer(1, 2.6 * cm))
-        story.append(Paragraph("智旅云图", title_style))
+        story.append(Paragraph("山海拾光（智旅云图）", title_style))
         story.append(Spacer(1, 0.35 * cm))
         story.append(Paragraph("行程规划报告", subtitle_style))
         story.append(Spacer(1, 2.4 * cm))
@@ -1037,7 +1037,7 @@ class ExportService:
 
             # ---- 页脚 ----
             story.append(Spacer(1, 1.2 * cm))
-            story.append(Paragraph("—— 智旅云图 · 智能行程规划 ——", footer_style))
+            story.append(Paragraph("—— 山海拾光（智旅云图） · 智能行程规划 ——", footer_style))
             story.append(Paragraph(f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}", footer_style))
 
             buffer = io.BytesIO()
@@ -1048,8 +1048,8 @@ class ExportService:
                 rightMargin=2 * cm,
                 topMargin=2 * cm,
                 bottomMargin=2 * cm,
-                title=f"{trip_data.trip_name} - 智旅云图行程报告",
-                author="智旅云图",
+                title=f"{trip_data.trip_name} - 山海拾光（智旅云图）行程报告",
+                author="山海拾光（智旅云图）",
             )
             doc.build(
                 story,

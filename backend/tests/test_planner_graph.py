@@ -1,5 +1,5 @@
 """
-智旅云图 - LangGraph 主图与节点单元测试
+山海拾光（智旅云图） - LangGraph 主图与节点单元测试
 
 测试范围：
 - 图可正常编译（build_planner_graph）

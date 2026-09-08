@@ -1,5 +1,5 @@
 """
-智旅云图 - API 路由集成测试（Phase 7.1-7.4）
+山海拾光（智旅云图） - API 路由集成测试（Phase 7.1-7.4）
 
 使用 FastAPI TestClient + mock 服务层，不打真实 LLM / 高德 / SQLite。
 覆盖：健康检查、行程生成/历史/删除、Markdown/PDF 导出、天气查询。

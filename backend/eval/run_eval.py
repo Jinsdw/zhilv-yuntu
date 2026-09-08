@@ -147,7 +147,7 @@ def run_evaluation(level: EvaluationLevel = EvaluationLevel.STANDARD) -> dict:
     """运行评估"""
     logger.info(f"开始 {level.value} 级别 RAG 评估")
     print(f"\n{'=' * 60}")
-    print(f"  智旅云图 RAG 评估系统")
+    print(f"  山海拾光（智旅云图） RAG 评估系统")
     print(f"{'=' * 60}")
     print(f"  评估级别: {level.value}")
     print(f"{'=' * 60}\n")
@@ -302,7 +302,7 @@ def run_monitor():
     logger.info("启动 RAG 持续监控...")
 
     print(f"\n{'=' * 60}")
-    print(f"  智旅云图 RAG 监控模式")
+    print(f"  山海拾光（智旅云图） RAG 监控模式")
     print(f"{'=' * 60}\n")
 
     config = MonitorConfig(
@@ -355,7 +355,7 @@ def run_monitor():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="智旅云图 RAG 评估工具",
+        description="山海拾光（智旅云图） RAG 评估工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:

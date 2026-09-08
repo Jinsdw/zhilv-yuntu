@@ -1,5 +1,5 @@
 """
-智旅云图 - LangGraph 状态定义
+山海拾光（智旅云图） - LangGraph 状态定义
 
 主规划图（PlannerState）使用的 TypedDict。
 采用 LangGraph 推荐的 reducer 模式：messages 与 validation_warnings 使用 add 累加。

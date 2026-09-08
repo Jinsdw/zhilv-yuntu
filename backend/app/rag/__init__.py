@@ -1,4 +1,4 @@
-# 智旅云图后端 RAG 模块
+# 山海拾光（智旅云图）后端 RAG 模块
 
 from app.rag.vector_db import (
     VectorDBService,

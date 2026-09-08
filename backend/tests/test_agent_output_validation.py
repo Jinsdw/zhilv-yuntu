@@ -1,5 +1,5 @@
 """
-智旅云图 - Agent 输出验证测试
+山海拾光（智旅云图） - Agent 输出验证测试
 
 本文件聚焦「输出验证」：验证 TripPlannerAgent 生成的 TripResponse 在
 结构、内容与业务约束上的不变量，覆盖：

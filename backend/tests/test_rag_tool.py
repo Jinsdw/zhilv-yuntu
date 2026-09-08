@@ -1,5 +1,5 @@
 """
-智旅云图 - RAG 工具单元测试
+山海拾光（智旅云图） - RAG 工具单元测试
 
 全部 mock Retriever.retrieve，不打真实 Chroma / LLM。
 """

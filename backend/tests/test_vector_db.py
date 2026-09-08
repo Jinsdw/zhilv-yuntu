@@ -1,5 +1,5 @@
 """
-智旅云图 - RAG 向量数据库与混合检索引擎测试
+山海拾光（智旅云图） - RAG 向量数据库与混合检索引擎测试
 
 全部 mock ChromaDB 集合，不打真实向量库 / LLM / 网络。
 """
@@ -21,7 +21,7 @@ def _make_collection_mock():
     collection = MagicMock()
     collection.name = "travel_guides"
     collection.count.return_value = 0
-    collection.metadata = {"description": "智旅云图旅行攻略向量库"}
+    collection.metadata = {"description": "山海拾光（智旅云图）旅行攻略向量库"}
     return collection
 
 

@@ -1,5 +1,5 @@
 """
-智旅云图 - API 集成测试（Phase 9.1.3）
+山海拾光（智旅云图） - API 集成测试（Phase 9.1.3）
 
 与 test_api_routes.py（mock 服务层）不同，本文件跑真实链路：
     - 真实 FastAPI 应用 + lifespan（真实初始化临时 SQLite 表）
@@ -246,7 +246,7 @@ class TestSystemEndpointsIntegration:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "running"
-        assert body["name"] == "智旅云图"
+        assert body["name"] == "山海拾光（智旅云图）"
 
     def test_health_ok_with_real_db(self, app_env):
         client, _, _ = app_env

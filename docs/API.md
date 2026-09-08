@@ -1,4 +1,4 @@
-# 智旅云图 - API 接口文档
+# 山海拾光（智旅云图） - API 接口文档
 
 > 后端基于 FastAPI，交互式文档见 `http://localhost:8000/docs`（Swagger UI）或 `http://localhost:8000/redoc`。
 
@@ -51,7 +51,7 @@
 
 ```json
 {
-  "name": "智旅云图",
+  "name": "山海拾光（智旅云图）",
   "version": "1.0.0",
   "status": "running"
 }

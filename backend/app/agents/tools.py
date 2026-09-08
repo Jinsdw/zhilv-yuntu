@@ -1,5 +1,5 @@
 """
-智旅云图 - LangChain 工具封装
+山海拾光（智旅云图） - LangChain 工具封装
 
 把 Phase 5 已实现的 RAGTool（rag_tool.py，保持不动）包装为 LangChain @tool，
 供 LangGraph 的 ToolNode 直接消费。

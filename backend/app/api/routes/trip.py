@@ -1,5 +1,5 @@
 """
-智旅云图 - 行程 API 路由（Phase 7.1）
+山海拾光（智旅云图） - 行程 API 路由（Phase 7.1）
 
 职责：HTTP 入口，仅调用 TripService，不承载业务编排。
 

@@ -1,5 +1,5 @@
 ﻿# ============================================
-# 智旅云图 - 缓存清理脚本
+# 山海拾光（智旅云图） - 缓存清理脚本
 # ============================================
 
 param(
@@ -19,7 +19,7 @@ function Write-Sep { Write-Host "----------------------------------------" -Fore
 function Show-Banner {
     Write-Host ""
     Write-Sep
-    Write-Host "  🧹 智旅云图 - 缓存清理工具" -ForegroundColor Magenta
+    Write-Host "  🧹 山海拾光（智旅云图） - 缓存清理工具" -ForegroundColor Magenta
     Write-Host "  Clear Cache Utility" -ForegroundColor Magenta
     Write-Sep
     Write-Host ""

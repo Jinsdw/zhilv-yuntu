@@ -1,4 +1,4 @@
-# 智旅云图全局配置
+# 山海拾光（智旅云图）全局配置
 
 import os
 from pathlib import Path
@@ -16,7 +16,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 class Settings(BaseSettings):
     # 项目基础配置
-    PROJECT_NAME: str = "智旅云图"
+    PROJECT_NAME: str = "山海拾光（智旅云图）"
     VERSION: str = "1.0.0"
     DEBUG: bool = True
 

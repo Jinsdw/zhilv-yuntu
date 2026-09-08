@@ -1,5 +1,5 @@
 """
-智旅云图 - 攻略文档向量化入库脚本
+山海拾光（智旅云图） - 攻略文档向量化入库脚本
 将攻略文档分块、向量化并存储到 ChromaDB
 """
 
@@ -440,7 +440,7 @@ def main():
     """主函数"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="智旅云图攻略文档入库工具")
+    parser = argparse.ArgumentParser(description="山海拾光（智旅云图）攻略文档入库工具")
     parser.add_argument("--city", type=str, default="beijing", help="入库指定城市（默认: beijing）")
     parser.add_argument("--all", action="store_true", help="入库所有城市")
     parser.add_argument("--recreate", action="store_true", help="强制重建（清空后重新入库）")

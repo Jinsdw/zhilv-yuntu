@@ -1,5 +1,5 @@
 """
-智旅云图 - 行程规划 Agent（LangGraph 实现）
+山海拾光（智旅云图） - 行程规划 Agent（LangGraph 实现）
 
 将 TripRequest 转为可校验的 TripResponse 草案。
 控制流由 LangGraph StateGraph 接管（见 planner_graph.py / nodes.py）。
@@ -248,7 +248,7 @@ class DraftItinerary(BaseModel):
 # Prompt
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """你是「智旅云图」行程规划助手。根据用户约束与候选POI数据，生成可执行的多日行程。
+SYSTEM_PROMPT = """你是「山海拾光（智旅云图）」行程规划助手。根据用户约束与候选POI数据，生成可执行的多日行程。
 
 硬性规则：
 1. 当用户消息附带【候选POI】时，景点、餐厅、酒店优先从候选列表中选择，并输出对应的 place_id。若某类候选缺失（如候选列表没有酒店/餐饮/景点），对应字段可省略或 place_id 留空（null），系统会自动从高德补充；严禁编造候选列表外或真实不存在的地点。

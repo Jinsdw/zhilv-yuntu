@@ -1,5 +1,5 @@
 /**
- * 智旅云图 - 浏览器设备指纹（无登录场景的数据隔离标识）
+ * 山海拾光（智旅云图） - 浏览器设备指纹（无登录场景的数据隔离标识）
  *
  * 用途：项目无登录体系，部署上线后需要用设备指纹做历史记录隔离。
  * 前端把 device_id 作为 X-Device-Id header 统一附加到所有请求，
@@ -79,7 +79,7 @@ function canvasFingerprint(): string {
     ctx.fillStyle = '#0C7C7E'
     ctx.fillRect(0, 0, 240, 64)
     ctx.fillStyle = '#E8A33D'
-    ctx.fillText('智旅云图 zhilv-yuntu device fingerprint', 4, 4)
+    ctx.fillText('山海拾光（智旅云图） zhilv-yuntu device fingerprint', 4, 4)
     ctx.font = '16px "Times New Roman"'
     ctx.fillStyle = '#5B6E9C'
     ctx.fillText('canvas-signal-2026', 4, 32)

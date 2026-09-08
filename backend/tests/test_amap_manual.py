@@ -1,5 +1,5 @@
 """
-智旅云图 - 高德API手动测试脚本
+山海拾光（智旅云图） - 高德API手动测试脚本
 
 用于测试高德地理编码和逆地理编码接口是否正常工作
 
@@ -257,7 +257,7 @@ async def run_example_tests():
 async def main():
     """主函数"""
     print("\n" + "=" * 50)
-    print("智旅云图 - 高德API手动测试工具")
+    print("山海拾光（智旅云图） - 高德API手动测试工具")
     print("=" * 50)
 
     # 检查API Key

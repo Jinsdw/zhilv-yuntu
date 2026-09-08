@@ -1,4 +1,4 @@
-# 智旅云图 - 环境变量说明
+# 山海拾光（智旅云图） - 环境变量说明
 
 > 项目根目录的 `.env` 由前后端共用（后端 `Settings` 配置 `extra="ignore"`，会忽略前端专属变量）。模板见 `.env.example`。
 
@@ -15,7 +15,7 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PROJECT_NAME` | `智旅云图` | 项目名（用于 API 元数据） |
+| `PROJECT_NAME` | `山海拾光（智旅云图）` | 项目名（用于 API 元数据） |
 | `DEBUG` | `true` | 调试模式（SQLAlchemy echo 等） |
 | `VERSION` | `1.0.0` | 服务版本 |
 
@@ -63,7 +63,7 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `VITE_APP_TITLE` | `智旅云图` | 页面标题 |
+| `VITE_APP_TITLE` | `山海拾光（智旅云图）` | 页面标题 |
 | `VITE_API_BASE_URL` | 空（同源） | API 基础路径；留空由 vite 代理 / 生产反代转发 |
 | `VITE_API_PROXY_TARGET` | `http://localhost:8000` | 开发代理目标（后端地址） |
 | `VITE_DEV_PORT` | `5173` | 前端开发端口 |

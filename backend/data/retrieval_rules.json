@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "description": "智旅云图 RAG 系统检索规则配置",
+  "description": "山海拾光（智旅云图） RAG 系统检索规则配置",
   
   "chunking": {
     "strategy": "section_aware",

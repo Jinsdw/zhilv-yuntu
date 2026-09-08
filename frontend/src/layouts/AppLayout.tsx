@@ -69,10 +69,10 @@ export default function AppLayout() {
           </Flex>
           <Flex vertical style={{ lineHeight: 1.25, cursor: 'pointer' }}>
             <Typography.Text strong className="zl-serif" style={{ fontSize: 17 }}>
-              智旅云图
+              山海拾光
             </Typography.Text>
             <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-              山海拾光 · AI 行程规划
+              智旅云图 · AI 行程规划
             </Typography.Text>
           </Flex>
         </Flex>
@@ -136,7 +136,7 @@ export default function AppLayout() {
           paddingBlock: 18,
         }}
       >
-        智旅云图 · 多 Agent 协同的智能旅游行程规划助手 · 把想去的远方，排成一天天的好日子
+        山海拾光（智旅云图） · 多 Agent 协同的智能旅游行程规划助手 · 把想去的远方，排成一天天的好日子
       </Footer>
     </Layout>
   )

@@ -142,7 +142,7 @@ class ReportGenerator:
         pass_rate_emoji = "✅" if pass_rate_val >= 85 else "⚠️" if pass_rate_val >= 70 else "❌"
 
         lines = [
-            "# 🧭 智旅云图 RAG 评估报告",
+            "# 🧭 山海拾光（智旅云图） RAG 评估报告",
             "",
             f"**评估时间**: {report.timestamp}",
             f"**评估级别**: {report.level.value}",
@@ -404,7 +404,7 @@ class ReportGenerator:
 <body>
     <div class="container">
         <div class="header">
-            <h1>🧭 智旅云图 RAG 评估报告</h1>
+            <h1>🧭 山海拾光（智旅云图） RAG 评估报告</h1>
             <p>评估时间: {report.timestamp} | 级别: <strong>{report.level.value}</strong></p>
         </div>
 
@@ -537,7 +537,7 @@ class ReportGenerator:
         html += f"""
         <div class="footer">
             <p>报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            <p>智旅云图 RAG 评估系统</p>
+            <p>山海拾光（智旅云图） RAG 评估系统</p>
         </div>
     </div>
 </body>

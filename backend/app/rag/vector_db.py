@@ -1,5 +1,5 @@
 """
-智旅云图 - ChromaDB 向量数据库服务
+山海拾光（智旅云图） - ChromaDB 向量数据库服务
 提供攻略文档的向量化存储和混合检索能力
 """
 
@@ -101,7 +101,7 @@ class VectorDBService:
             collection = self.client.get_or_create_collection(
                 name=self.collection_name,
                 metadata={
-                    "description": "智旅云图旅行攻略向量库",
+                    "description": "山海拾光（智旅云图）旅行攻略向量库",
                     "dimension": self.EMBEDDING_DIMENSION,
                     "created_at": datetime.now().isoformat()
                 }

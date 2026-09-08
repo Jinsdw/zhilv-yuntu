@@ -1,4 +1,4 @@
-# 智旅云图 - 服务器部署手册（宝塔Linux面板）
+# 山海拾光（智旅云图） - 服务器部署手册（宝塔Linux面板）
 
 > 目标环境：宝塔Linux面板 11.8（腾讯云专享版），系统建议 Ubuntu 22.04 / Debian 12 / 腾讯云 OpenCloudOS。
 > 部署形态：后端 + Redis 用 Docker Compose（`docker-compose.prod.yaml`），前端 Vite 构建为静态文件由 Nginx 托管，Nginx 把 `/trip` `/weather` `/export` `/health` 反代到 `127.0.0.1:8000`。

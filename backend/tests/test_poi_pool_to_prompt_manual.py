@@ -1,5 +1,5 @@
 """
-智旅云图 - 高德 POI 候选池 → 大模型提示词 手动测试用例
+山海拾光（智旅云图） - 高德 POI 候选池 → 大模型提示词 手动测试用例
 
 复刻真实业务链路（TripService._invoke_agent 动态城市分支 + llm_plan_node 提示词组装）：
     1. 输入城市 → 构建 TripRequest

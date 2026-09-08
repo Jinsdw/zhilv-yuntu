@@ -77,8 +77,7 @@ export default function Home() {
             type="secondary"
             style={{ marginBottom: 0, fontSize: 15, maxWidth: 560 }}
           >
-            输入目的地、日期与偏好，AI 自动生成每日行程、地图点位、天气与预算，
-            还能随时导出为 Markdown 或 PDF。
+            共赴山海，不负时光。
           </Typography.Paragraph>
           <Flex wrap gap={8} align="center" style={{ marginTop: 8 }}>
             <Typography.Text type="secondary" style={{ fontSize: 13 }}>

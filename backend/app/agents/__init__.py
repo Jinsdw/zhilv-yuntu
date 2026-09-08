@@ -1,4 +1,4 @@
-# 智旅云图后端 Agents 模块（LangGraph 实现）
+# 山海拾光（智旅云图）后端 Agents 模块（LangGraph 实现）
 
 # RAG 工具（Phase 5 实现，保持不变）
 from app.agents.rag_tool import (

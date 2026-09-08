@@ -1,5 +1,5 @@
 """
-智旅云图 - 天气 API 路由（Phase 7.3）
+山海拾光（智旅云图） - 天气 API 路由（Phase 7.3）
 
 职责：HTTP 入口，仅调用 weather_service，不承载业务。
 

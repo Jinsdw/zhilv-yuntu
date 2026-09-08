@@ -1,5 +1,5 @@
 """
-智旅云图 - LLM 客户端工厂
+山海拾光（智旅云图） - LLM 客户端工厂
 
 通过 langchain-openai 的 ChatOpenAI 对接 OpenAI 兼容端点，
 让 LangGraph / ToolNode 等机制原生可用，移除对 zai 库的硬依赖。
