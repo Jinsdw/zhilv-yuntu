@@ -3,6 +3,9 @@
 > 多 Agent 协同的智能旅游行程规划助手
 
 用户输入**目的地、日期、预算、人数与偏好**后，系统自动生成结构化行程方案，并补充地图点位、路线、天气、预算拆分、景点图片与可导出的旅行文档（Markdown / PDF）。
+<img width="2372" height="1758" alt="屏幕截图_8-9-2026_204536_122 51 82 50 (1)" src="https://github.com/user-attachments/assets/2527e910-619f-4354-a859-9fe0864725bf" />
+<img width="2372" height="5014" alt="屏幕截图_8-9-2026_204517_122 51 82 50" src="https://github.com/user-attachments/assets/023aca80-616b-46e3-bd3c-e77016ac8de2" />
+<img width="2372" height="1696" alt="屏幕截图_8-9-2026_21353_122 51 82 50" src="https://github.com/user-attachments/assets/27095318-8825-47f3-933e-c76939e1aee4" />
 
 ## 功能特性
 
@@ -37,12 +40,7 @@
 - **地图 / 天气**：高德地图 Web 服务 API + JavaScript API v2.0
 - **前端**：React 18 + TypeScript + Ant Design 5 + Vite + Axios；「山海拾光」明信片杂志风主题（主色 `#C0472F`，明暗双模式）
 - **部署**：Docker Compose（backend + redis）+ `start.ps1` 管理脚本
-
-<img width="2372" height="1758" alt="屏幕截图_8-9-2026_204536_122 51 82 50 (1)" src="https://github.com/user-attachments/assets/2527e910-619f-4354-a859-9fe0864725bf" />
-<img width="2372" height="5014" alt="屏幕截图_8-9-2026_204517_122 51 82 50" src="https://github.com/user-attachments/assets/023aca80-616b-46e3-bd3c-e77016ac8de2" />
-<img width="2372" height="1696" alt="屏幕截图_8-9-2026_21353_122 51 82 50" src="https://github.com/user-attachments/assets/27095318-8825-47f3-933e-c76939e1aee4" />
-
-
+- 
 ## 快速开始
 
 ### 1. 配置环境变量
