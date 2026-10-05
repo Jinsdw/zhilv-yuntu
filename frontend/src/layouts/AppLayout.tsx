@@ -137,6 +137,16 @@ export default function AppLayout() {
         }}
       >
         山海拾光（智旅云图） · 多 Agent 协同的智能旅游行程规划助手 · 把想去的远方，排成一天天的好日子
+        <div style={{ marginTop: 4 }}>
+          <a
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: 'inherit' }}
+          >
+            豫ICP备2026047725号
+          </a>
+        </div>
       </Footer>
     </Layout>
   )
