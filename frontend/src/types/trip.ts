@@ -100,3 +100,39 @@ export interface TripTipCategory {
   /** 该分类下的贴士列表 */
   tips: string[]
 }
+
+/** 候选地点预览（12.1 方案 A：图片墙数据，与 schemas.PreviewCandidate 对齐） */
+export interface PreviewCandidate {
+  /** 地点名称 */
+  name: string
+  /** 分类（景点/餐厅/酒店） */
+  category: string
+  /** 地址 */
+  address?: string | null
+  /** 所属行政区 */
+  district?: string | null
+  /** 评分（0-5） */
+  rating?: number | null
+  /** 图片 URL 列表 */
+  photos: string[]
+  /** 候选打分 */
+  score: number
+}
+
+/** 行程预览响应（12.1 方案 A：先图后等，LLM 返回前先展示候选图片池） */
+export interface TripPreviewResponse {
+  /** 归一化后的目的地 */
+  destination: string
+  /** 城市等级（preset=A级 / dynamic=B级） */
+  city_level: 'preset' | 'dynamic'
+  /** 候选地点（含图片） */
+  candidates: PreviewCandidate[]
+  /** 候选总数 */
+  total: number
+  /** 构建预览耗时（秒） */
+  estimate_seconds: number
+  /** 数据来源（poi_pool / fallback） */
+  source: 'poi_pool' | 'fallback'
+  /** 非阻断性警告 */
+  warnings: string[]
+}

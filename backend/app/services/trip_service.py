@@ -48,8 +48,10 @@ from app.models.schemas import (
     ItineraryDay,
     ItineraryItem,
     PlaceInfo,
+    PreviewCandidate,
     TripRequest,
     TripResponse,
+    TripPreviewResponse,
     WeatherInfo,
 )
 from app.services.amap_geo_service import (
@@ -345,6 +347,90 @@ class TripService:
             self._safe_cache_set(cache_key, trip)
 
         return trip
+
+    # ================================================================
+    # 12.1 方案 A：行程预览（先图后等）
+    # ================================================================
+
+    def build_preview(
+        self,
+        request: TripRequest,
+        *,
+        user_id: Optional[str] = None,
+    ) -> TripPreviewResponse:
+        """
+        构建行程预览：拉取 POI 候选池（A/B 级城市均出图），快速返回候选图片池。
+
+        与 generate_trip 的差异：
+        - 不调用 Agent / LLM，只复用候选池（24h 缓存）→ 秒级返回
+        - A 级（preset）与 B 级（dynamic）统一走 build_pool_sync，仅供图不参与规划
+        - 失败不阻断：候选池为空/异常时返回空 candidates + source=fallback
+
+        Args:
+            request: 行程请求
+            user_id: 可选用户ID（预留，暂不参与缓存键）
+
+        Returns:
+            TripPreviewResponse：候选地点（含图片）+ 城市等级 + 耗时
+        """
+        started_at = time.time()
+
+        # 1. 城市归一化（与 generate_trip 一致）
+        dest = _normalize_destination(request.destination)
+        request = request.model_copy(update={"destination": dest})
+        level = "preset" if is_preset_city(dest) else "dynamic"
+
+        warnings: List[str] = []
+        candidates: List[PreviewCandidate] = []
+        source = "poi_pool"
+
+        # 2. 拉取候选池（复用 24h 缓存；A 级城市同样走 POI 池仅供图）
+        try:
+            pool = self._place_service.build_pool_sync(request)
+            warnings.extend([w for w in (pool.warnings or []) if w][:5])
+
+            raw_candidates: List[PreviewCandidate] = []
+            for place in (
+                list(pool.scenic_places or [])[:8]
+                + list(pool.food_places or [])[:4]
+                + list(pool.hotel_places or [])[:3]
+            ):
+                photos = [u for u in (place.photos or []) if isinstance(u, str) and u]
+                raw_candidates.append(
+                    PreviewCandidate(
+                        name=place.name,
+                        category=place.category or "景点",
+                        address=place.address or None,
+                        district=place.district,
+                        rating=place.rating,
+                        photos=photos,
+                        score=round(float(place.score or 0.0), 3),
+                    )
+                )
+
+            # 有图优先，再按打分降序（保证图片墙先满）
+            candidates = sorted(
+                raw_candidates,
+                key=lambda c: (0 if c.photos else 1, -c.score),
+            )
+
+            if not candidates:
+                warnings.append(f"[{dest}] 候选池为空，图片预览不可用")
+                source = "fallback"
+        except Exception as e:
+            logger.warning(f"预览候选池构建失败 [{dest}]: {e}")
+            warnings.append(f"候选池构建失败: {e}")
+            source = "fallback"
+
+        return TripPreviewResponse(
+            destination=dest,
+            city_level=level,
+            candidates=candidates,
+            total=len(candidates),
+            estimate_seconds=round(time.time() - started_at, 3),
+            source=source,
+            warnings=warnings,
+        )
 
     # ------------------------------------------------------------------
     # Agent 调用：根据城市分级走不同分支

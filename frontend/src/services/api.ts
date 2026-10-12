@@ -27,6 +27,7 @@ import type {
   TripHistoryListResponse,
   TripRequest,
   TripResponse,
+  TripPreviewResponse,
 } from '@/types'
 
 /** API 基础路径：VITE_API_BASE_URL 为空时保持同源（vite 代理 / 生产反代） */
@@ -226,6 +227,22 @@ export const tripApi = {
       request,
       {
         timeout: GENERATE_TIMEOUT,
+        params: userId ? { user_id: userId } : undefined,
+      },
+    )
+  },
+
+  /**
+   * 12.1 行程预览（先图后等）
+   * POST /trip/preview
+   * 说明：快速返回 POI 候选图片池（A/B 级城市均出图），供生成等待期展示图片墙；
+   * 不调用 Agent / LLM，秒级返回；失败由调用方降级为普通进度条。
+   */
+  preview(request: TripRequest, userId?: string): Promise<TripPreviewResponse> {
+    return api.post<TripPreviewResponse>(
+      '/trip/preview',
+      request,
+      {
         params: userId ? { user_id: userId } : undefined,
       },
     )

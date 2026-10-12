@@ -9,9 +9,10 @@ import { App as AntdApp, Button, Collapse, Flex, Form, Typography } from 'antd'
 import type { Dayjs } from 'dayjs'
 import type { FormInstance } from 'antd'
 
-import type { TripRequest } from '@/types'
+import type { PreviewCandidate, TripRequest } from '@/types'
 
 import AdvancedCollapse from './AdvancedCollapse'
+import CandidateImageWall from './CandidateImageWall'
 import DateRangeField from './DateRangeField'
 import DestinationField from './DestinationField'
 import GenerationProgress from './GenerationProgress'
@@ -44,6 +45,8 @@ export interface TripFormValues {
 export interface TripPlannerFormProps {
   /** 生成中（由 Home 控制，切换为进度视图） */
   busy: boolean
+  /** 12.1 预览候选图（生成等待期展示；为空/未返回则只显示进度条） */
+  previewCandidates?: PreviewCandidate[]
   /** 触发生成：提交组装好的 TripRequest */
   onSubmit: (request: TripRequest) => Promise<void>
   /** 重置回调（Home 用于清理错误与进度） */
@@ -101,7 +104,13 @@ const INITIAL_VALUES: Partial<TripFormValues> = {
   note: '',
 }
 
-export default function TripPlannerForm({ busy, onSubmit, onReset, form: externalForm }: TripPlannerFormProps) {
+export default function TripPlannerForm({
+  busy,
+  previewCandidates,
+  onSubmit,
+  onReset,
+  form: externalForm,
+}: TripPlannerFormProps) {
   const { message } = AntdApp.useApp()
   const [internalForm] = Form.useForm<TripFormValues>()
   const form = externalForm ?? internalForm
@@ -192,7 +201,23 @@ export default function TripPlannerForm({ busy, onSubmit, onReset, form: externa
         </Form>
       </div>
 
-      {busy && <GenerationProgress />}
+      {busy && (
+        <Flex vertical gap={16}>
+          {previewCandidates && previewCandidates.length > 0 && (
+            <>
+              <Typography.Text
+                strong
+                className="zl-serif"
+                style={{ fontSize: 15, color: 'var(--zl-text, #2b2118)' }}
+              >
+                目的地候选 · 先睹为快
+              </Typography.Text>
+              <CandidateImageWall candidates={previewCandidates} />
+            </>
+          )}
+          <GenerationProgress />
+        </Flex>
+      )}
     </Flex>
   )
 }

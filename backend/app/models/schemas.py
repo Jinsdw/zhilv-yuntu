@@ -560,3 +560,29 @@ class TripHistoryListResponse(BaseModel):
     total: int = Field(..., ge=0, description="总记录数")
     limit: int = Field(..., ge=0, description="每页数量")
     offset: int = Field(..., ge=0, description="偏移量")
+
+
+# ==================== 12.1 方案 A：行程预览模型 ====================
+
+class PreviewCandidate(BaseModel):
+    """候选地点预览（图片墙数据，来源 POI 候选池）"""
+
+    name: str = Field(..., min_length=1, description="地点名称")
+    category: str = Field(..., description="分类（景点/餐厅/酒店）")
+    address: Optional[str] = Field(default=None, description="地址")
+    district: Optional[str] = Field(default=None, description="所属行政区")
+    rating: Optional[float] = Field(default=None, ge=0, le=5, description="评分(0-5)")
+    photos: List[str] = Field(default_factory=list, description="图片URL列表")
+    score: float = Field(default=0.0, ge=0, description="候选打分")
+
+
+class TripPreviewResponse(BaseModel):
+    """行程预览响应（先图后等：LLM 返回前先展示候选图片池）"""
+
+    destination: str = Field(..., description="归一化后的目的地")
+    city_level: str = Field(..., description="城市等级（preset=A级 / dynamic=B级）")
+    candidates: List[PreviewCandidate] = Field(default_factory=list, description="候选地点（含图片）")
+    total: int = Field(default=0, ge=0, description="候选总数")
+    estimate_seconds: float = Field(default=0.0, ge=0, description="构建预览耗时(秒)")
+    source: str = Field(..., description="数据来源（poi_pool / fallback）")
+    warnings: List[str] = Field(default_factory=list, description="非阻断性警告")

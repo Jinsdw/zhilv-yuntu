@@ -13,7 +13,7 @@ import TripPlannerForm, { type TripFormValues } from '@/components/trip/TripPlan
 import { PRESET_CITIES } from '@/constants/options'
 import { ROUTES } from '@/router/routes'
 import { ApiError, tripApi } from '@/services/api'
-import type { TripRequest, TripResponse } from '@/types'
+import type { TripPreviewResponse, TripRequest, TripResponse } from '@/types'
 import { toErrorMessage } from '@/utils/error'
 import { writeTripSnapshot } from '@/utils/snapshot'
 
@@ -24,10 +24,18 @@ export default function Home() {
   const [form] = Form.useForm<TripFormValues>()
   const [generating, setGenerating] = useState(false)
   const [cityError, setCityError] = useState<string | null>(null)
+  /** 12.1 方案 A：预览候选图（生成等待期展示，失败不阻断） */
+  const [preview, setPreview] = useState<TripPreviewResponse | null>(null)
 
   const handleGenerate = async (request: TripRequest) => {
     setGenerating(true)
     setCityError(null)
+    setPreview(null)
+    // 12.1 并行拉取预览：图片墙在 LLM 返回前先出图；失败静默降级为纯进度条
+    tripApi
+      .preview(request)
+      .then((res) => setPreview(res))
+      .catch(() => setPreview(null))
     try {
       const trip: TripResponse = await tripApi.generate(request)
       writeTripSnapshot({ trip, request })
@@ -134,6 +142,7 @@ export default function Home() {
         </Flex>
         <TripPlannerForm
           busy={generating}
+          previewCandidates={preview?.candidates}
           form={form}
           onSubmit={handleGenerate}
           onReset={() => setCityError(null)}

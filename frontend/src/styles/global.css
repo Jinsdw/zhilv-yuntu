@@ -142,3 +142,15 @@ body {
   --zl-nav-bg: #241d16;
   --zl-nav-border: rgba(232, 163, 61, 0.14);
 }
+
+/* 12.1 候选图片墙渐进淡入（CandidateImageWall 逐卡错峰） */
+@keyframes zl-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

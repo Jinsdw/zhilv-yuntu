@@ -30,6 +30,7 @@ from app.models.schemas import (
     TripHistoryListResponse,
     TripRequest,
     TripResponse,
+    TripPreviewResponse,
 )
 from app.services.trip_service import TripNotFoundError, trip_service
 
@@ -45,6 +46,20 @@ def generate_trip(
     """生成行程（同步阻塞，走线程池；已持久化并回填 trip_id）。"""
     # 设备指纹标识优先，兼容旧客户端通过 query 传 user_id
     return trip_service.generate_trip(request, user_id=device_id or user_id)
+
+
+@router.post("/preview", response_model=TripPreviewResponse, status_code=200)
+def preview_trip(
+    request: TripRequest,
+    device_id: Optional[str] = Depends(get_device_id_optional),
+    user_id: Optional[str] = Query(None, description="可选用户ID"),
+) -> TripPreviewResponse:
+    """行程预览（12.1 方案 A）：快速返回 POI 候选图片池，供生成等待期展示图片墙。
+
+    说明：同步 def 走 FastAPI 线程池（内部 build_pool_sync 为同步阻塞），
+    不调用 Agent / LLM，秒级返回；失败由 service 降级为空池，不抛错。
+    """
+    return trip_service.build_preview(request, user_id=device_id or user_id)
 @router.get("/history", response_model=TripHistoryListResponse, status_code=200)
 def list_history(
     device_id: str = Depends(require_device_id),
