@@ -226,6 +226,7 @@ class DraftDay(BaseModel):
     day_number: int = Field(..., ge=1)
     itinerary_date: Optional[date] = None
     day_theme: Optional[str] = None
+    day_summary: Optional[str] = Field(default=None, description="当日概述（2-3 句，供前日摘要与前端 day 事件）")
     items: list[DraftItem] = Field(default_factory=list)
     daily_tips: list[str] = Field(default_factory=list)
     breakfast: Optional[DraftMeal] = None
