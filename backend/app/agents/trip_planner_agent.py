@@ -366,18 +366,11 @@ def _budget_cn(level: Any) -> str:
     }.get(str(value), str(value or ""))
 
 
-def build_user_prompt(
-    request: TripRequest,
-    *,
-    context: Optional[str] = None,
-    candidate_places: Optional[list[Any]] = None,
-    candidate_sections: Optional[dict[str, Any]] = None,
-    extra_instruction: Optional[str] = None,
-) -> str:
-    """将 TripRequest 渲染为 user 消息。
+def _render_constraints(request: TripRequest) -> str:
+    """渲染全局约束块（日期/人数/预算/风格/偏好/特殊需求等）。
 
-    当 candidate_sections 传入时（B类动态城市），按景点/餐饮/住宿三段分类输出，
-    并标注区域分组，强制 LLM 从候选池中选点并输出 place_id。
+    供 build_user_prompt（batch）与 day_chain.build_day_prompt（daily）共用，
+    保证两种生成模式对用户约束的渲染口径一致。
     """
     days = (request.end_date - request.start_date).days + 1
     lines = [
@@ -408,9 +401,19 @@ def build_user_prompt(
         lines.append("偏好关键词：" + "、".join(request.preferred_keywords))
     if request.excluded_keywords:
         lines.append("排除关键词：" + "、".join(request.excluded_keywords))
+    return "\n".join(lines)
 
-    # ---- 分类候选池输出（B类动态城市新路径） ----
+
+def _render_candidates(
+    candidate_sections: Optional[dict[str, Any]] = None,
+    candidate_places: Optional[list[Any]] = None,
+) -> str:
+    """渲染候选池块（B类分类候选 / A类扁平候选）。无候选时返回空串。
+
+    与 build_user_prompt / day_chain.build_day_prompt 共用，保证候选渲染一致。
+    """
     if candidate_sections and any(candidate_sections.get(k) for k in ("scenic", "food", "hotel")):
+        lines: list[str] = []
         lines.append("")
         lines.append("【候选POI】")
         lines.append("以下为高德真实POI数据，请从中选择地点并输出对应 place_id；若某类候选缺失（如无酒店/餐饮/景点候选），对应字段可留空（place_id 为 null），系统会自动补充，禁止编造列表外地点。")
@@ -487,7 +490,9 @@ def build_user_prompt(
         lines.append("4. 每日尽量包含 lunch、dinner 和 hotel 并输出 place_id；若候选缺失对应类别，字段可留空（place_id 为 null），系统会自动补充")
         lines.append("5. 多日行程时，每天选择不同区域的景点，保证多样性")
         lines.append("")
-    elif candidate_places:
+        return "\n".join(lines)
+
+    if candidate_places:
         # 旧路径：扁平列表（A类沉淀城市降级等场景）
         names = []
         for p in candidate_places[:40]:
@@ -495,17 +500,42 @@ def build_user_prompt(
                 names.append(str(p.get("name") or p.get("place_id") or p))
             else:
                 names.append(str(getattr(p, "name", p)))
-        lines.append("候选地点（请优先从中选择，勿使用列表外冷门点）：" + "、".join(names))
+        return "候选地点（请优先从中选择，勿使用列表外冷门点）：" + "、".join(names)
 
+    return ""
+
+
+def build_user_prompt(
+    request: TripRequest,
+    *,
+    context: Optional[str] = None,
+    candidate_places: Optional[list[Any]] = None,
+    candidate_sections: Optional[dict[str, Any]] = None,
+    extra_instruction: Optional[str] = None,
+) -> str:
+    """将 TripRequest 渲染为 user 消息。
+
+    当 candidate_sections 传入时（B类动态城市），按景点/餐饮/住宿三段分类输出，
+    并标注区域分组，强制 LLM 从候选池中选点并输出 place_id。
+    约束与候选渲染分别复用 _render_constraints / _render_candidates，
+    与 day_chain.build_day_prompt 保持同源。
+    """
+    parts = [_render_constraints(request)]
+    candidates = _render_candidates(
+        candidate_sections=candidate_sections,
+        candidate_places=candidate_places,
+    )
+    if candidates:
+        parts.append(candidates)
     if extra_instruction:
-        lines.append("额外要求：" + extra_instruction)
+        parts.append("额外要求：" + extra_instruction)
     if context and context.strip():
-        lines.append("")
-        lines.append("【攻略上下文】")
-        lines.append(context.strip())
-    lines.append("")
-    lines.append("请输出符合规范的行程 JSON。")
-    return "\n".join(lines)
+        parts.append("")
+        parts.append("【攻略上下文】")
+        parts.append(context.strip())
+    parts.append("")
+    parts.append("请输出符合规范的行程 JSON。")
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -1093,6 +1123,335 @@ class TripPlannerAgent:
 
     # ---------- 校验 ----------
 
+    def _validate_repair_day(
+        self,
+        day: DraftDay,
+        request: TripRequest,
+        *,
+        day_number: int,
+        candidate_index: Optional[dict[str, Any]] = None,
+        district_clusters: Optional[dict[str, list[str]]] = None,
+        food_candidates: Optional[list[Any]] = None,
+        hotel_candidates: Optional[list[Any]] = None,
+        used_global_scenic: Optional[set[str]] = None,
+    ) -> tuple[DraftDay, list[str]]:
+        """校验与修复单个 DraftDay（13.2.3 单日链与 batch 模式共用）。
+
+        逻辑 = 原 validate_and_repair 的逐日循环体：
+        - 排除词移除
+        - place_id 合法性校验（B类路径）
+        - 同日同区域（cluster）检测
+        - 特殊需求硬约束替换
+        - 景点数裁剪 / 不足回补（used_global_scenic 跨天去重）
+        - 食宿缺失补选 / 强制清除 breakfast / 时间排序
+        """
+        warnings: list[str] = []
+        excluded = [str(x).strip() for x in (request.excluded_keywords or []) if str(x).strip()]
+        max_places = request.max_places_per_day
+
+        idx_map = candidate_index or {}
+        clusters = district_clusters or {}
+        food_pool = food_candidates or []
+        hotel_pool = hotel_candidates or []
+        used_global_scenic = used_global_scenic if used_global_scenic is not None else set()
+
+        # 构建反向索引：place_id → cluster_name
+        pid_to_cluster: dict[str, str] = {}
+        for cluster_name, pids in clusters.items():
+            for pid in pids:
+                pid_to_cluster[pid] = cluster_name
+
+        day = day.model_copy(deep=True)
+        day.day_number = day_number
+        day.itinerary_date = request.start_date + timedelta(days=day_number - 1)
+
+        # 排除词
+        if excluded:
+            kept = []
+            for it in day.items:
+                if any(ex in it.name for ex in excluded):
+                    warnings.append(f"第{day_number}天移除排除地点: {it.name}")
+                else:
+                    kept.append(it)
+            day.items = kept
+
+        # place_id 合法性校验（B类路径）
+        if idx_map:
+            for it in day.items:
+                if it.place_id and it.place_id not in idx_map:
+                    # 尝试按名称匹配候选池
+                    matched = False
+                    for pid, cp in idx_map.items():
+                        if isinstance(cp, dict) and cp.get("name") == it.name:
+                            it.place_id = pid
+                            matched = True
+                            break
+                    if not matched:
+                        warnings.append(f"第{day_number}天 [{it.name}] place_id 不在候选池")
+
+        # 跨 cluster 检测
+        if pid_to_cluster and day.items:
+            cluster_counts: dict[str, int] = {}
+            for it in day.items:
+                c = pid_to_cluster.get(it.place_id or "", "未知")
+                cluster_counts[c] = cluster_counts.get(c, 0) + 1
+            if len(cluster_counts) > 1:
+                majority = max(cluster_counts, key=cluster_counts.get)
+                minority_pids = [
+                    it.place_id for it in day.items
+                    if pid_to_cluster.get(it.place_id or "", "") != majority
+                ]
+                if minority_pids:
+                    warnings.append(
+                        f"第{day_number}天跨区域: 多数在[{majority}]，"
+                        f"少数{minority_pids}建议替换"
+                    )
+
+        # 特殊需求硬约束校验（B类路径，有候选池时）
+        if idx_map and (request.with_kids or request.with_elderly or request.has_disability):
+            kept_items = []
+            replaced_count = 0
+            for it in day.items:
+                cp = idx_map.get(it.place_id or "")
+                if not cp:
+                    kept_items.append(it)
+                    continue
+                suitable = True
+                reasons = []
+                if request.with_kids and not cp.get("suitable_for_kids", True):
+                    suitable = False
+                    reasons.append("不适合儿童")
+                if request.with_elderly and not cp.get("suitable_for_elderly", True):
+                    suitable = False
+                    reasons.append("不适合老人")
+                if request.has_disability and not cp.get("has_wheelchair_access", False):
+                    suitable = False
+                    reasons.append("无障碍不便")
+                if suitable:
+                    kept_items.append(it)
+                else:
+                    replaced_count += 1
+                    warnings.append(
+                        f"第{day_number}天 [{it.name}] 不符合特殊需求（{'/'.join(reasons)}），将替换"
+                    )
+            if replaced_count > 0:
+                day.items = kept_items
+
+        # 裁剪景点数
+        if len(day.items) > max_places:
+            warnings.append(f"第{day_number}天景点 {len(day.items)}>{max_places}，已裁剪")
+            day.items = day.items[:max_places]
+
+        # 景点数不足补选（B类路径）：每天至少 MIN_PLACES_PER_DAY 个
+        used_global_scenic.update(it.place_id for it in day.items if it.place_id)
+        if idx_map and len(day.items) < MIN_PLACES_PER_DAY:
+            need = MIN_PLACES_PER_DAY - len(day.items)
+            current_pids = {it.place_id for it in day.items if it.place_id}
+            existing_clusters = {
+                pid_to_cluster.get(pid)
+                for pid in current_pids
+                if pid_to_cluster.get(pid)
+            }
+
+            def _is_suitable(pid: str) -> bool:
+                """检查候选是否符合特殊需求硬约束。"""
+                cp = idx_map.get(pid)
+                if not isinstance(cp, dict):
+                    return True  # 无数据时默认通过
+                if request.with_kids and not cp.get("suitable_for_kids", True):
+                    return False
+                if request.with_elderly and not cp.get("suitable_for_elderly", True):
+                    return False
+                if request.has_disability and not cp.get("has_wheelchair_access", False):
+                    # 行动不便时严格要求无障碍，若无则跳过
+                    return False
+                return True
+
+            same_cluster_suitable: list[str] = []
+            same_cluster_other: list[str] = []
+            other_cluster_suitable: list[str] = []
+            other_cluster_other: list[str] = []
+
+            for cluster_name, pids in clusters.items():
+                in_same = cluster_name in existing_clusters
+                for pid in pids:
+                    if pid in used_global_scenic or pid in current_pids:
+                        continue
+                    cp = idx_map.get(pid)
+                    if not isinstance(cp, dict):
+                        continue
+                    name = cp.get("name", "")
+                    if excluded and any(ex in name for ex in excluded):
+                        continue
+                    suitable = _is_suitable(pid)
+                    if in_same:
+                        if suitable:
+                            same_cluster_suitable.append(pid)
+                        else:
+                            same_cluster_other.append(pid)
+                    else:
+                        if suitable:
+                            other_cluster_suitable.append(pid)
+                        else:
+                            other_cluster_other.append(pid)
+
+            def _rating_key(pid: str) -> float:
+                cp = idx_map.get(pid) or {}
+                try:
+                    return -float(cp.get("rating") or 0.0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            # 优先级：同区域符合特殊需求 > 同区域其他 > 跨区域符合 > 跨区域其他
+            same_cluster_suitable.sort(key=_rating_key)
+            same_cluster_other.sort(key=_rating_key)
+            other_cluster_suitable.sort(key=_rating_key)
+            other_cluster_other.sort(key=_rating_key)
+
+            picked: list[str] = []
+            for bucket in [same_cluster_suitable, same_cluster_other,
+                           other_cluster_suitable, other_cluster_other]:
+                if len(picked) >= need:
+                    break
+                remaining = need - len(picked)
+                picked += bucket[:remaining]
+
+            for pid in picked:
+                cp = idx_map[pid]
+                name = cp.get("name", "")
+                cost = cp.get("cost")
+                try:
+                    ticket = float(cost) if cost else 0.0
+                except (TypeError, ValueError):
+                    ticket = 0.0
+                day.items.append(
+                    DraftItem(
+                        name=name,
+                        place_id=pid,
+                        category="景点",
+                        activity="游览",
+                        start_time="14:00",
+                        end_time="16:30",
+                        duration_minutes=150,
+                        ticket_price=ticket,
+                    )
+                )
+                used_global_scenic.add(pid)
+                warnings.append(f"第{day_number}天景点不足，已自动补选: {name}")
+
+        # 食宿缺失补选（B类路径）- 优先选择符合特殊需求的
+        has_special_needs = request.with_kids or request.with_elderly or request.has_disability
+
+        def _food_is_suitable(fp: dict) -> bool:
+            """检查餐厅是否符合特殊需求。"""
+            if not has_special_needs:
+                return True
+            if request.with_kids and not fp.get("suitable_for_kids", True):
+                return False
+            if request.with_elderly and not fp.get("suitable_for_elderly", True):
+                return False
+            # 餐厅无障碍一般不做强约束，只做优先排序
+            return True
+
+        def _hotel_is_suitable(hp: dict) -> bool:
+            """检查酒店是否符合特殊需求。"""
+            if not has_special_needs:
+                return True
+            if request.with_kids and not hp.get("suitable_for_kids", True):
+                return False
+            if request.with_elderly and not hp.get("suitable_for_elderly", True):
+                return False
+            if request.has_disability and not hp.get("has_wheelchair_access", False):
+                return False
+            return True
+
+        def _pick_best_food(used_pids: set[str]) -> Optional[dict]:
+            """优先选择符合特殊需求的餐厅，其次选评分最高的。"""
+            suitable = []
+            others = []
+            for fp in food_pool:
+                if not isinstance(fp, dict):
+                    continue
+                pid = fp.get("place_id")
+                if not pid or pid in used_pids:
+                    continue
+                if _food_is_suitable(fp):
+                    suitable.append(fp)
+                else:
+                    others.append(fp)
+            # 按评分排序
+            suitable.sort(key=lambda x: -(x.get("rating") or 0))
+            others.sort(key=lambda x: -(x.get("rating") or 0))
+            pool = suitable + others
+            return pool[0] if pool else None
+
+        if food_pool and (
+            day.lunch is None
+            or not day.lunch.place_id
+            or (idx_map and day.lunch.place_id not in idx_map)
+        ):
+            used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
+            best = _pick_best_food(used_pids)
+            if best:
+                day.lunch = DraftMeal(
+                    name=best.get("name", ""),
+                    place_id=best.get("place_id", ""),
+                    cuisine_type=best.get("category", "本地菜"),
+                    avg_price=float(best.get("cost") or 50),
+                )
+                used_pids.add(best.get("place_id", ""))
+                warnings.append(f"第{day_number}天午餐缺失，已自动补选: {best.get('name')}")
+        if food_pool and (
+            day.dinner is None
+            or not day.dinner.place_id
+            or (idx_map and day.dinner.place_id not in idx_map)
+        ):
+            used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
+            best = _pick_best_food(used_pids)
+            if best:
+                day.dinner = DraftMeal(
+                    name=best.get("name", ""),
+                    place_id=best.get("place_id", ""),
+                    cuisine_type=best.get("category", "本地菜"),
+                    avg_price=float(best.get("cost") or 80),
+                )
+                warnings.append(f"第{day_number}天晚餐缺失，已自动补选: {best.get('name')}")
+
+        if hotel_pool and (
+            day.hotel is None
+            or not day.hotel.place_id
+            or (idx_map and day.hotel.place_id not in idx_map)
+        ):
+            # 优先选择符合特殊需求的酒店
+            suitable_hotels = []
+            other_hotels = []
+            for hp in hotel_pool:
+                if not isinstance(hp, dict):
+                    continue
+                if _hotel_is_suitable(hp):
+                    suitable_hotels.append(hp)
+                else:
+                    other_hotels.append(hp)
+            suitable_hotels.sort(key=lambda x: -(x.get("rating") or 0))
+            other_hotels.sort(key=lambda x: -(x.get("rating") or 0))
+            all_hotels = suitable_hotels + other_hotels
+            best = all_hotels[0] if all_hotels else None
+            if best:
+                day.hotel = DraftHotel(
+                    name=best.get("name", ""),
+                    place_id=best.get("place_id", ""),
+                    hotel_type="舒适型",
+                    price=float(best.get("cost") or 300),
+                )
+                warnings.append(f"第{day_number}天酒店缺失，已自动补选: {best.get('name')}")
+
+        # 强制清除 breakfast（不安排早餐）
+        day.breakfast = None
+
+        # 时间排序与简单去重叠
+        day.items = self._sort_and_fix_times(day.items, warnings, day_number=day_number)
+        return day, warnings
+
     def validate_and_repair(
         self,
         draft: DraftItinerary,
@@ -1109,22 +1468,10 @@ class TripPlannerAgent:
         - place_id 合法性校验：检查景点/餐饮/酒店是否在候选池内
         - 跨 cluster 检测：同日景点必须在同一区域分组
         - 食宿缺失补选：lunch/dinner/hotel 缺失时从候选池自动补选
+        逐日逻辑复用 _validate_repair_day（与 day_chain 单日链同源）。
         """
         warnings: list[str] = []
         total_days = (request.end_date - request.start_date).days + 1
-        excluded = [str(x).strip() for x in (request.excluded_keywords or []) if str(x).strip()]
-        max_places = request.max_places_per_day
-
-        idx_map = candidate_index or {}
-        clusters = district_clusters or {}
-        food_pool = food_candidates or []
-        hotel_pool = hotel_candidates or []
-
-        # 构建反向索引：place_id → cluster_name
-        pid_to_cluster: dict[str, str] = {}
-        for cluster_name, pids in clusters.items():
-            for pid in pids:
-                pid_to_cluster[pid] = cluster_name
 
         # 对齐天数
         by_num: dict[int, DraftDay] = {}
@@ -1148,293 +1495,15 @@ class TripPlannerAgent:
                 day = day.model_copy(deep=True)
                 day.day_number = i
 
-            day.itinerary_date = request.start_date + timedelta(days=i - 1)
-
-            # 排除词
-            if excluded:
-                kept = []
-                for it in day.items:
-                    if any(ex in it.name for ex in excluded):
-                        warnings.append(f"第{i}天移除排除地点: {it.name}")
-                    else:
-                        kept.append(it)
-                day.items = kept
-
-            # place_id 合法性校验（B类路径）
-            if idx_map:
-                for it in day.items:
-                    if it.place_id and it.place_id not in idx_map:
-                        # 尝试按名称匹配候选池
-                        matched = False
-                        for pid, cp in idx_map.items():
-                            if isinstance(cp, dict) and cp.get("name") == it.name:
-                                it.place_id = pid
-                                matched = True
-                                break
-                        if not matched:
-                            warnings.append(f"第{i}天 [{it.name}] place_id 不在候选池")
-
-            # 跨 cluster 检测
-            if pid_to_cluster and day.items:
-                cluster_counts: dict[str, int] = {}
-                for it in day.items:
-                    c = pid_to_cluster.get(it.place_id or "", "未知")
-                    cluster_counts[c] = cluster_counts.get(c, 0) + 1
-                if len(cluster_counts) > 1:
-                    majority = max(cluster_counts, key=cluster_counts.get)
-                    minority_pids = [
-                        it.place_id for it in day.items
-                        if pid_to_cluster.get(it.place_id or "", "") != majority
-                    ]
-                    if minority_pids:
-                        warnings.append(
-                            f"第{i}天跨区域: 多数在[{majority}]，"
-                            f"少数{minority_pids}建议替换"
-                        )
-
-            # 特殊需求硬约束校验（B类路径，有候选池时）
-            if idx_map and (request.with_kids or request.with_elderly or request.has_disability):
-                kept_items = []
-                replaced_count = 0
-                for it in day.items:
-                    cp = idx_map.get(it.place_id or "")
-                    if not cp:
-                        kept_items.append(it)
-                        continue
-                    suitable = True
-                    reasons = []
-                    if request.with_kids and not cp.get("suitable_for_kids", True):
-                        suitable = False
-                        reasons.append("不适合儿童")
-                    if request.with_elderly and not cp.get("suitable_for_elderly", True):
-                        suitable = False
-                        reasons.append("不适合老人")
-                    if request.has_disability and not cp.get("has_wheelchair_access", False):
-                        suitable = False
-                        reasons.append("无障碍不便")
-                    if suitable:
-                        kept_items.append(it)
-                    else:
-                        replaced_count += 1
-                        warnings.append(
-                            f"第{i}天 [{it.name}] 不符合特殊需求（{'/'.join(reasons)}），将替换"
-                        )
-                if replaced_count > 0:
-                    day.items = kept_items
-
-            # 裁剪景点数
-            if len(day.items) > max_places:
-                warnings.append(f"第{i}天景点 {len(day.items)}>{max_places}，已裁剪")
-                day.items = day.items[:max_places]
-
-            # 景点数不足补选（B类路径）：每天至少 MIN_PLACES_PER_DAY 个
-            used_global_scenic.update(it.place_id for it in day.items if it.place_id)
-            if idx_map and len(day.items) < MIN_PLACES_PER_DAY:
-                need = MIN_PLACES_PER_DAY - len(day.items)
-                current_pids = {it.place_id for it in day.items if it.place_id}
-                existing_clusters = {
-                    pid_to_cluster.get(pid)
-                    for pid in current_pids
-                    if pid_to_cluster.get(pid)
-                }
-
-                def _is_suitable(pid: str) -> bool:
-                    """检查候选是否符合特殊需求硬约束。"""
-                    cp = idx_map.get(pid)
-                    if not isinstance(cp, dict):
-                        return True  # 无数据时默认通过
-                    if request.with_kids and not cp.get("suitable_for_kids", True):
-                        return False
-                    if request.with_elderly and not cp.get("suitable_for_elderly", True):
-                        return False
-                    if request.has_disability and not cp.get("has_wheelchair_access", False):
-                        # 行动不便时严格要求无障碍，若无则跳过
-                        return False
-                    return True
-
-                same_cluster_suitable: list[str] = []
-                same_cluster_other: list[str] = []
-                other_cluster_suitable: list[str] = []
-                other_cluster_other: list[str] = []
-
-                for cluster_name, pids in clusters.items():
-                    in_same = cluster_name in existing_clusters
-                    for pid in pids:
-                        if pid in used_global_scenic or pid in current_pids:
-                            continue
-                        cp = idx_map.get(pid)
-                        if not isinstance(cp, dict):
-                            continue
-                        name = cp.get("name", "")
-                        if excluded and any(ex in name for ex in excluded):
-                            continue
-                        suitable = _is_suitable(pid)
-                        if in_same:
-                            if suitable:
-                                same_cluster_suitable.append(pid)
-                            else:
-                                same_cluster_other.append(pid)
-                        else:
-                            if suitable:
-                                other_cluster_suitable.append(pid)
-                            else:
-                                other_cluster_other.append(pid)
-
-                def _rating_key(pid: str) -> float:
-                    cp = idx_map.get(pid) or {}
-                    try:
-                        return -float(cp.get("rating") or 0.0)
-                    except (TypeError, ValueError):
-                        return 0.0
-
-                # 优先级：同区域符合特殊需求 > 同区域其他 > 跨区域符合 > 跨区域其他
-                same_cluster_suitable.sort(key=_rating_key)
-                same_cluster_other.sort(key=_rating_key)
-                other_cluster_suitable.sort(key=_rating_key)
-                other_cluster_other.sort(key=_rating_key)
-
-                picked: list[str] = []
-                for bucket in [same_cluster_suitable, same_cluster_other,
-                               other_cluster_suitable, other_cluster_other]:
-                    if len(picked) >= need:
-                        break
-                    remaining = need - len(picked)
-                    picked += bucket[:remaining]
-
-                for pid in picked:
-                    cp = idx_map[pid]
-                    name = cp.get("name", "")
-                    cost = cp.get("cost")
-                    try:
-                        ticket = float(cost) if cost else 0.0
-                    except (TypeError, ValueError):
-                        ticket = 0.0
-                    day.items.append(
-                        DraftItem(
-                            name=name,
-                            place_id=pid,
-                            category="景点",
-                            activity="游览",
-                            start_time="14:00",
-                            end_time="16:30",
-                            duration_minutes=150,
-                            ticket_price=ticket,
-                        )
-                    )
-                    used_global_scenic.add(pid)
-                    warnings.append(f"第{i}天景点不足，已自动补选: {name}")
-
-            # 食宿缺失补选（B类路径）- 优先选择符合特殊需求的
-            has_special_needs = request.with_kids or request.with_elderly or request.has_disability
-
-            def _food_is_suitable(fp: dict) -> bool:
-                """检查餐厅是否符合特殊需求。"""
-                if not has_special_needs:
-                    return True
-                if request.with_kids and not fp.get("suitable_for_kids", True):
-                    return False
-                if request.with_elderly and not fp.get("suitable_for_elderly", True):
-                    return False
-                # 餐厅无障碍一般不做强约束，只做优先排序
-                return True
-
-            def _hotel_is_suitable(hp: dict) -> bool:
-                """检查酒店是否符合特殊需求。"""
-                if not has_special_needs:
-                    return True
-                if request.with_kids and not hp.get("suitable_for_kids", True):
-                    return False
-                if request.with_elderly and not hp.get("suitable_for_elderly", True):
-                    return False
-                if request.has_disability and not hp.get("has_wheelchair_access", False):
-                    return False
-                return True
-
-            def _pick_best_food(used_pids: set[str]) -> Optional[dict]:
-                """优先选择符合特殊需求的餐厅，其次选评分最高的。"""
-                suitable = []
-                others = []
-                for fp in food_pool:
-                    if not isinstance(fp, dict):
-                        continue
-                    pid = fp.get("place_id")
-                    if not pid or pid in used_pids:
-                        continue
-                    if _food_is_suitable(fp):
-                        suitable.append(fp)
-                    else:
-                        others.append(fp)
-                # 按评分排序
-                suitable.sort(key=lambda x: -(x.get("rating") or 0))
-                others.sort(key=lambda x: -(x.get("rating") or 0))
-                pool = suitable + others
-                return pool[0] if pool else None
-
-            if food_pool and (
-                day.lunch is None
-                or not day.lunch.place_id
-                or (idx_map and day.lunch.place_id not in idx_map)
-            ):
-                used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
-                best = _pick_best_food(used_pids)
-                if best:
-                    day.lunch = DraftMeal(
-                        name=best.get("name", ""),
-                        place_id=best.get("place_id", ""),
-                        cuisine_type=best.get("category", "本地菜"),
-                        avg_price=float(best.get("cost") or 50),
-                    )
-                    used_pids.add(best.get("place_id", ""))
-                    warnings.append(f"第{i}天午餐缺失，已自动补选: {best.get('name')}")
-            if food_pool and (
-                day.dinner is None
-                or not day.dinner.place_id
-                or (idx_map and day.dinner.place_id not in idx_map)
-            ):
-                used_pids = {m.place_id for m in [day.lunch, day.dinner] if m}
-                best = _pick_best_food(used_pids)
-                if best:
-                    day.dinner = DraftMeal(
-                        name=best.get("name", ""),
-                        place_id=best.get("place_id", ""),
-                        cuisine_type=best.get("category", "本地菜"),
-                        avg_price=float(best.get("cost") or 80),
-                    )
-                    warnings.append(f"第{i}天晚餐缺失，已自动补选: {best.get('name')}")
-
-            if hotel_pool and (
-                day.hotel is None
-                or not day.hotel.place_id
-                or (idx_map and day.hotel.place_id not in idx_map)
-            ):
-                # 优先选择符合特殊需求的酒店
-                suitable_hotels = []
-                other_hotels = []
-                for hp in hotel_pool:
-                    if not isinstance(hp, dict):
-                        continue
-                    if _hotel_is_suitable(hp):
-                        suitable_hotels.append(hp)
-                    else:
-                        other_hotels.append(hp)
-                suitable_hotels.sort(key=lambda x: -(x.get("rating") or 0))
-                other_hotels.sort(key=lambda x: -(x.get("rating") or 0))
-                all_hotels = suitable_hotels + other_hotels
-                best = all_hotels[0] if all_hotels else None
-                if best:
-                    day.hotel = DraftHotel(
-                        name=best.get("name", ""),
-                        place_id=best.get("place_id", ""),
-                        hotel_type="舒适型",
-                        price=float(best.get("cost") or 300),
-                    )
-                    warnings.append(f"第{i}天酒店缺失，已自动补选: {best.get('name')}")
-
-            # 强制清除 breakfast（不安排早餐）
-            day.breakfast = None
-
-            # 时间排序与简单去重叠
-            day.items = self._sort_and_fix_times(day.items, warnings, day_number=i)
+            day, day_warnings = self._validate_repair_day(
+                day, request, day_number=i,
+                candidate_index=candidate_index,
+                district_clusters=district_clusters,
+                food_candidates=food_candidates,
+                hotel_candidates=hotel_candidates,
+                used_global_scenic=used_global_scenic,
+            )
+            warnings.extend(day_warnings)
             new_days.append(day)
 
         if len(draft.days) != total_days:
@@ -1737,14 +1806,15 @@ class TripPlannerAgent:
 
     # ---------- 降级 ----------
 
-    def _fallback_plan(
+    def _collect_fallback_place_names(
         self,
         request: TripRequest,
-        *,
         meta: dict,
-        started_at: float,
-    ) -> TripResponse:
-        """RAG 片段 + 默认时段模板拼装。供 nodes.fallback_node 复用。"""
+    ) -> tuple[list[str], str]:
+        """降级用：从 RAG 片段提取候选景点名；无结果时按特殊需求给默认景点。
+
+        供 _fallback_plan（batch 整份兜底）与 day_chain.fallback_day（单日兜底）共用。
+        """
         context = ""
         place_names: list[str] = []
         try:
@@ -1800,63 +1870,89 @@ class TripPlannerAgent:
                     f"{request.destination}夜景点",
                 ]
 
-        total_days = (request.end_date - request.start_date).days + 1
+        return place_names, context
+
+    def _build_fallback_day(
+        self,
+        request: TripRequest,
+        day_number: int,
+        *,
+        place_names: list[str],
+        cursor: int,
+    ) -> tuple[DraftDay, int]:
+        """降级模板的单个 DraftDay（复用 _fallback_plan 的当日拼装逻辑，供单日链兜底）。"""
         max_places = request.max_places_per_day
+        items: list[DraftItem] = []
+        n = min(max_places, max(1, len(DEFAULT_TIME_SLOTS)))
+        for j in range(n):
+            name = place_names[cursor % len(place_names)]
+            cursor += 1
+            start_t, end_t = DEFAULT_TIME_SLOTS[j % len(DEFAULT_TIME_SLOTS)]
+            items.append(
+                DraftItem(
+                    start_time=start_t,
+                    end_time=end_t,
+                    name=name,
+                    category="景点",
+                    activity="游览",
+                    tips=["建议提前查询开放时间和门票政策", "降级模板生成，实地信息以官方为准"],
+                )
+            )
+        # 每日特殊需求提示
+        daily_extra_tips: list[str] = []
+        if request.with_kids:
+            daily_extra_tips.append("带娃出行：请看好孩子，注意安全，备好水和零食")
+        if request.with_elderly:
+            daily_extra_tips.append("老人出行：量力而行，累了及时休息，随身携带常用药品")
+        if request.has_disability:
+            daily_extra_tips.append("无障碍提示：出行前确认景点无障碍设施开放情况")
+
+        day = DraftDay(
+            day_number=day_number,
+            itinerary_date=request.start_date + timedelta(days=day_number - 1),
+            day_theme=f"第{day_number}天",
+            items=items,
+            daily_tips=[
+                "降级模板生成，建议核对开放时间和预约要求",
+                "当日景点间距较远时建议提前规划交通路线",
+            ] + daily_extra_tips,
+            lunch=DraftMeal(
+                name=f"{request.destination}特色午餐",
+                avg_price=float(request.restaurant_budget_per_meal),
+            ),
+            dinner=DraftMeal(
+                name=f"{request.destination}特色晚餐",
+                avg_price=float(request.restaurant_budget_per_meal),
+            ),
+            hotel=DraftHotel(
+                name=f"{request.destination}舒适酒店",
+                price=BUDGET_DAILY_BASE.get(
+                    getattr(request.budget_level, "value", "standard"),
+                    600.0,
+                )
+                * ACCOMMODATION_SHARE,
+            ),
+        )
+        return day, cursor
+
+    def _fallback_plan(
+        self,
+        request: TripRequest,
+        *,
+        meta: dict,
+        started_at: float,
+    ) -> TripResponse:
+        """RAG 片段 + 默认时段模板拼装。供 nodes.fallback_node 复用。"""
+        place_names, context = self._collect_fallback_place_names(request, meta)
+
+        total_days = (request.end_date - request.start_date).days + 1
         days: list[DraftDay] = []
         cursor = 0
         for i in range(total_days):
-            items: list[DraftItem] = []
-            n = min(max_places, max(1, len(DEFAULT_TIME_SLOTS)))
-            for j in range(n):
-                name = place_names[cursor % len(place_names)]
-                cursor += 1
-                start_t, end_t = DEFAULT_TIME_SLOTS[j % len(DEFAULT_TIME_SLOTS)]
-                items.append(
-                    DraftItem(
-                        start_time=start_t,
-                        end_time=end_t,
-                        name=name,
-                        category="景点",
-                        activity="游览",
-                        tips=["建议提前查询开放时间和门票政策", "降级模板生成，实地信息以官方为准"],
-                    )
-                )
-            # 每日特殊需求提示
-            daily_extra_tips: list[str] = []
-            if request.with_kids:
-                daily_extra_tips.append("带娃出行：请看好孩子，注意安全，备好水和零食")
-            if request.with_elderly:
-                daily_extra_tips.append("老人出行：量力而行，累了及时休息，随身携带常用药品")
-            if request.has_disability:
-                daily_extra_tips.append("无障碍提示：出行前确认景点无障碍设施开放情况")
-
-            days.append(
-                DraftDay(
-                    day_number=i + 1,
-                    day_theme=f"第{i + 1}天",
-                    items=items,
-                    daily_tips=[
-                        "降级模板生成，建议核对开放时间和预约要求",
-                        "当日景点间距较远时建议提前规划交通路线",
-                    ] + daily_extra_tips,
-                    lunch=DraftMeal(
-                        name=f"{request.destination}特色午餐",
-                        avg_price=float(request.restaurant_budget_per_meal),
-                    ),
-                    dinner=DraftMeal(
-                        name=f"{request.destination}特色晚餐",
-                        avg_price=float(request.restaurant_budget_per_meal),
-                    ),
-                    hotel=DraftHotel(
-                        name=f"{request.destination}舒适酒店",
-                        price=BUDGET_DAILY_BASE.get(
-                            getattr(request.budget_level, "value", "standard"),
-                            600.0,
-                        )
-                        * ACCOMMODATION_SHARE,
-                    ),
-                )
+            day, cursor = self._build_fallback_day(
+                request, i + 1, place_names=place_names, cursor=cursor
             )
+            days.append(day)
 
         # 特殊需求说明
         special_notes: list[str] = []
