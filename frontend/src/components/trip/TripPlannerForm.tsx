@@ -17,6 +17,8 @@ import DateRangeField from './DateRangeField'
 import DestinationField from './DestinationField'
 import GenerationProgress from './GenerationProgress'
 import KeywordsField from './KeywordsField'
+import LiveGenerationPanel from './LiveGenerationPanel'
+import type { LiveStreamState } from './LiveGenerationPanel'
 import PeopleField from './PeopleField'
 import StyleField from './StyleField'
 
@@ -47,6 +49,8 @@ export interface TripPlannerFormProps {
   busy: boolean
   /** 12.1 预览候选图（生成等待期展示；为空/未返回则只显示进度条） */
   previewCandidates?: PreviewCandidate[]
+  /** 12.2 流式生成状态（SSE 事件驱动；存在时展示实时面板，否则回退预览+进度条） */
+  liveStream?: LiveStreamState | null
   /** 触发生成：提交组装好的 TripRequest */
   onSubmit: (request: TripRequest) => Promise<void>
   /** 重置回调（Home 用于清理错误与进度） */
@@ -107,6 +111,7 @@ const INITIAL_VALUES: Partial<TripFormValues> = {
 export default function TripPlannerForm({
   busy,
   previewCandidates,
+  liveStream,
   onSubmit,
   onReset,
   form: externalForm,
@@ -201,7 +206,9 @@ export default function TripPlannerForm({
         </Form>
       </div>
 
-      {busy && (
+      {busy && liveStream && <LiveGenerationPanel stream={liveStream} />}
+
+      {busy && !liveStream && (
         <Flex vertical gap={16}>
           {previewCandidates && previewCandidates.length > 0 && (
             <>

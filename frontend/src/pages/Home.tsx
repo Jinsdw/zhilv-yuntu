@@ -4,16 +4,17 @@
  * 生成成功后写入 sessionStorage 快照并跳转结果页。
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { Alert, App as AntdApp, Card, Flex, Form, Tag, Typography, theme } from 'antd'
 import { useNavigate } from 'react-router-dom'
 
 import TripPlannerForm, { type TripFormValues } from '@/components/trip/TripPlannerForm'
+import type { LiveStreamState } from '@/components/trip/LiveGenerationPanel'
 import { PRESET_CITIES } from '@/constants/options'
 import { ROUTES } from '@/router/routes'
 import { ApiError, tripApi } from '@/services/api'
-import type { TripPreviewResponse, TripRequest, TripResponse } from '@/types'
+import type { PreviewCandidate, StreamEvent, TripPreviewResponse, TripRequest, TripResponse } from '@/types'
 import { toErrorMessage } from '@/utils/error'
 import { writeTripSnapshot } from '@/utils/snapshot'
 
@@ -26,27 +27,100 @@ export default function Home() {
   const [cityError, setCityError] = useState<string | null>(null)
   /** 12.1 方案 A：预览候选图（生成等待期展示，失败不阻断） */
   const [preview, setPreview] = useState<TripPreviewResponse | null>(null)
+  /** 12.2 方案 B：SSE 流式实时状态（事件驱动） */
+  const [liveStream, setLiveStream] = useState<LiveStreamState | null>(null)
+  /** 图片墙去重：preview 种子与 poi 事件按 分类+名称 合并 */
+  const seenRef = useRef<Set<string>>(new Set())
+
+  const appendCandidates = (items: PreviewCandidate[]) => {
+    const fresh = items.filter((candidate) => {
+      const key = `${candidate.category}-${candidate.name}`
+      if (seenRef.current.has(key)) return false
+      seenRef.current.add(key)
+      return true
+    })
+    if (fresh.length === 0) return
+    setLiveStream((prev) =>
+      prev ? { ...prev, candidates: [...prev.candidates, ...fresh] } : prev,
+    )
+  }
+
+  const handleStreamEvent = (event: StreamEvent) => {
+    switch (event.type) {
+      case 'status':
+        setLiveStream((prev) =>
+          prev
+            ? { ...prev, stage: event.stage, message: event.message, progress: event.progress }
+            : prev,
+        )
+        break
+      case 'poi':
+        appendCandidates(event.items)
+        break
+      case 'draft':
+        setLiveStream((prev) =>
+          prev ? { ...prev, draft: { days: event.days, highlights: event.highlights } } : prev,
+        )
+        break
+      default:
+        break
+    }
+  }
+
+  const startPreview = (request: TripRequest) => {
+    tripApi
+      .preview(request)
+      .then((res) => {
+        setPreview(res)
+        appendCandidates(res.candidates)
+      })
+      .catch(() => setPreview(null))
+  }
+
+  const navigateToResult = (trip: TripResponse, request: TripRequest) => {
+    writeTripSnapshot({ trip, request })
+    navigate(ROUTES.result, { state: { trip, request } })
+  }
 
   const handleGenerate = async (request: TripRequest) => {
     setGenerating(true)
     setCityError(null)
     setPreview(null)
-    // 12.1 并行拉取预览：图片墙在 LLM 返回前先出图；失败静默降级为纯进度条
-    tripApi
-      .preview(request)
-      .then((res) => setPreview(res))
-      .catch(() => setPreview(null))
+    seenRef.current = new Set()
+    setLiveStream({ candidates: [], stage: 'init', message: '正在连接生成服务…', progress: 0, draft: null })
+    // 12.1 预览并行拉取：流式开始前先出图；失败静默降级
+    startPreview(request)
+
     try {
-      const trip: TripResponse = await tripApi.generate(request)
-      writeTripSnapshot({ trip, request })
-      navigate(ROUTES.result, { state: { trip, request } })
+      // 12.2 优先走 SSE 流式：status/poi/draft 逐帧更新实时面板
+      const trip: TripResponse = await tripApi.generateStream(request, handleStreamEvent)
+      navigateToResult(trip, request)
+      return
     } catch (error) {
-      // C 级目的地（省级等不受支持）内联提示，其余错误 toast
       if (error instanceof ApiError && error.code === 'CITY_NOT_SUPPORTED') {
         setCityError(toErrorMessage(error, '该目的地暂不支持，请尝试具体城市'))
       } else {
+        if (error instanceof ApiError && error.isNetworkError) {
+          // 12.2.8 流式通道失败 → 降级为普通 generate（不重复提示业务错误）
+          message.warning('实时生成通道不可用，已切换为普通模式')
+          try {
+            const trip: TripResponse = await tripApi.generate(request)
+            navigateToResult(trip, request)
+            return
+          } catch (fallbackError) {
+            if (fallbackError instanceof ApiError && fallbackError.code === 'CITY_NOT_SUPPORTED') {
+              setCityError(toErrorMessage(fallbackError, '该目的地暂不支持，请尝试具体城市'))
+            } else {
+              message.error(toErrorMessage(fallbackError, '生成失败，请稍后重试'))
+            }
+            setLiveStream(null)
+            setGenerating(false)
+            return
+          }
+        }
         message.error(toErrorMessage(error, '生成失败，请稍后重试'))
       }
+      setLiveStream(null)
       setGenerating(false)
     }
   }
@@ -143,6 +217,7 @@ export default function Home() {
         <TripPlannerForm
           busy={generating}
           previewCandidates={preview?.candidates}
+          liveStream={liveStream}
           form={form}
           onSubmit={handleGenerate}
           onReset={() => setCityError(null)}

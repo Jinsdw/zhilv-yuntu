@@ -18,11 +18,14 @@ import axios, { AxiosError } from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 
 import { getDeviceId } from '@/utils/deviceFingerprint'
+import { fetchSSE } from '@/utils/sse'
+import type { SSEFrame } from '@/utils/sse'
 
 import type {
   ApiErrorBody,
   CityWeatherResponse,
   HealthCheckResponse,
+  StreamEvent,
   TripBatchResult,
   TripHistoryListResponse,
   TripRequest,
@@ -41,6 +44,16 @@ const GENERATE_TIMEOUT = 300_000
 
 /** 导出下载超时：PDF 渲染较慢，放宽到 2 分钟 */
 const EXPORT_TIMEOUT = 120_000
+
+/** 构造流式请求的设备指纹头（与 axios 拦截器保持一致） */
+async function buildDeviceHeaders(): Promise<Record<string, string>> {
+  try {
+    const deviceId = await getDeviceId()
+    return deviceId ? { 'X-Device-Id': deviceId } : {}
+  } catch {
+    return {}
+  }
+}
 
 /**
  * API 错误：后端结构化错误体（ApiErrorBody）或网络层错误统一抛此类型。
@@ -246,6 +259,103 @@ export const tripApi = {
         params: userId ? { user_id: userId } : undefined,
       },
     )
+  },
+
+  /**
+   * 12.2 流式生成行程（SSE）
+   * POST /trip/generate/stream
+   * 说明：fetch + ReadableStream 解析 SSE（EventSource 不支持 POST body）；
+   * onEvent 逐帧回调（status / poi / draft）；final 帧 resolve 完整 TripResponse；
+   * error 帧 reject ApiError（携带 error_code）；传输中断 reject isNetworkError=true，
+   * 调用方可据此降级回普通 generate。
+   */
+  generateStream(
+    request: TripRequest,
+    onEvent: (event: StreamEvent) => void,
+    userId?: string,
+    signal?: AbortSignal,
+  ): Promise<TripResponse> {
+    return new Promise<TripResponse>((resolve, reject) => {
+      let settled = false
+
+      const fail = (
+        message: string,
+        body: ApiErrorBody | null,
+        status: number | null,
+        isNetworkError = false,
+      ) => {
+        if (settled) return
+        settled = true
+        reject(new ApiError(body, status, message, isNetworkError))
+      }
+
+      const handleFrame = (frame: SSEFrame) => {
+        if (settled) return
+        let data: unknown = frame.data
+        try {
+          data = JSON.parse(frame.data)
+        } catch {
+          // data 非 JSON：原样透传
+        }
+
+        if (frame.event === 'final') {
+          const trip = (data as { trip?: TripResponse }).trip
+          if (!trip) {
+            fail('流式响应缺少 final.trip', null, null, true)
+            return
+          }
+          settled = true
+          resolve(trip)
+          return
+        }
+
+        if (frame.event === 'error') {
+          const d = (data ?? {}) as { error_code?: string; message?: string }
+          fail(
+            d.message ?? '生成失败',
+            {
+              error_code: d.error_code ?? 'TRIP_SERVICE_ERROR',
+              error_message: d.message ?? '生成失败',
+              timestamp: new Date().toISOString(),
+            },
+            null,
+          )
+          return
+        }
+
+        try {
+          onEvent(data as StreamEvent)
+        } catch {
+          // 组件回调异常不影响流式读取
+        }
+      }
+
+      const params = userId ? `?user_id=${encodeURIComponent(userId)}` : ''
+      void buildDeviceHeaders()
+        .then((headers) =>
+          fetchSSE(
+            `${API_BASE_URL}/trip/generate/stream${params}`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream',
+                ...headers,
+              },
+              body: JSON.stringify(request),
+              signal,
+            },
+            handleFrame,
+          ),
+        )
+        .then(() => {
+          // 流正常读完但未收到 final（异常终止）
+          fail('流式连接提前结束', null, null, true)
+        })
+        .catch((err: unknown) => {
+          fail(err instanceof Error ? err.message : '流式连接中断', null, null, true)
+        })
+    })
   },
 
   /**

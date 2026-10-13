@@ -206,7 +206,81 @@
 - 400 `CITY_NOT_SUPPORTED`：目的地为省级等不支持的城市
 - 500 `TRIP_SERVICE_ERROR` / `INTERNAL_ERROR`：编排或存储失败
 
-### 4.2 GET /trip/history
+### 4.2 POST /trip/preview
+
+行程预览（12.1 方案 A）：快速返回 POI 候选图片池，供生成等待期展示图片墙。
+不调用 Agent / LLM，秒级返回；A/B 级城市均出图（A 级并行拉取 POI 池仅供图）；
+候选池为空或失败时降级为空池（`source=fallback`），不抛错。
+
+**Query 参数**：`user_id`（同 4.1）
+
+**请求体**：TripRequest（同 4.1）
+
+**响应 200 TripPreviewResponse**
+
+```json
+{
+  "destination": "北京",
+  "city_level": "preset",
+  "candidates": [
+    {
+      "name": "故宫",
+      "category": "景点",
+      "district": "东城区",
+      "rating": 4.8,
+      "photos": ["https://restapi.amap.com/v3/place/staticmap?..."],
+      "score": 9.2
+    }
+  ],
+  "total": 1,
+  "estimate_seconds": 1.23,
+  "source": "poi_pool",
+  "warnings": []
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `city_level` | string | `preset`（A 级沉淀城市）/ `dynamic`（B 级动态城市） |
+| `candidates[].category` | string | 景点 / 餐厅 / 酒店 |
+| `candidates[].photos` | string[] | 高德 POI 图片 URL |
+| `source` | string | `poi_pool` / `fallback` |
+
+### 4.3 POST /trip/generate/stream
+
+SSE 流式生成行程（12.2 方案 B）：单条连接逐步推送生成过程事件，前端据此展示
+图片墙 + 实时阶段与草案骨架。请求体与 4.1 相同，响应为 `text/event-stream`。
+
+**事件协议**（每帧 `event:` + `data:` JSON；空闲 15s 发 `: ping` 心跳注释行）
+
+| 事件 | 时机 | data 关键字段 |
+|------|------|------|
+| `status` | 阶段切换 | `stage`（poi_pool/planning/draft/enrich/weather/finalize/cache_hit）、`message`、`progress`(0-100) |
+| `poi` | POI 池就绪 | `category`（scenic/food/hotel）、`items[]`（名称/分类/图片/评分） |
+| `draft` | LLM 草案成形 | `days[]`（day_number/theme/places）、`highlights[]` |
+| `final` | 生成完成 | `trip`（完整 TripResponse，已持久化含 trip_id） |
+| `error` | 生成失败 | `error_code`（CITY_NOT_SUPPORTED / TRIP_SERVICE_ERROR）、`message` |
+
+**示例帧**
+
+```
+event: status
+data: {"type":"status","stage":"poi_pool","message":"构建 广州 POI 候选池","progress":15}
+
+event: poi
+data: {"type":"poi","category":"scenic","items":[{"name":"白云山","category":"景点","photos":["https://..."],"rating":4.5,"score":8.1}]}
+
+event: draft
+data: {"type":"draft","days":[{"day_number":1,"theme":"文化之旅","places":["故宫"]}],"highlights":["文化体验"]}
+
+event: final
+data: {"type":"final","trip":{...TripResponse}}
+```
+
+说明：缓存命中时仅推送 `status(cache_hit)` + `final`；流式通道不可用时前端自动
+降级回 4.1 `POST /trip/generate`。生产 Nginx 已配置 `proxy_buffering off` 防缓冲。
+
+### 4.4 GET /trip/history
 
 行程历史分页摘要（不含每日明细）。
 
@@ -252,7 +326,7 @@
 }
 ```
 
-### 4.3 DELETE /trip/history/{trip_id}
+### 4.5 DELETE /trip/history/{trip_id}
 
 删除行程历史。
 

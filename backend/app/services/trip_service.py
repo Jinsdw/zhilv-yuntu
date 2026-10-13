@@ -24,12 +24,13 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import hashlib
 import inspect
 import json
 import time
 from datetime import date as date_type
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -63,6 +64,7 @@ from app.services.amap_geo_service import (
 from app.services.cache_service import CacheNamespace, cache_service
 from app.services.geo_validation import validate_coordinate_for_city
 from app.services.place_candidate_service import (
+    CandidatePool,
     PlaceCandidateService,
     place_candidate_service,
 )
@@ -85,6 +87,17 @@ PLACEHOLDER_COORD = Coordinate(latitude=0.0, longitude=0.0)
 
 # 缓存 TTL（秒）
 TRIP_CACHE_TTL = 3600
+
+# 12.2 SSE 流式：阶段事件进度（0-100，预估）
+STREAM_STAGES: Dict[str, int] = {
+    "cache_hit": 100,
+    "poi_pool": 15,
+    "planning": 30,
+    "draft": 45,
+    "enrich": 70,
+    "weather": 85,
+    "finalize": 95,
+}
 
 
 # ============================================================================
@@ -263,6 +276,7 @@ class TripService:
         *,
         user_id: Optional[str] = None,
         use_cache: bool = True,
+        on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> TripResponse:
         """
         生成行程：Agent 产出草案 → 地图补全 → 天气补全 → token 统计 → 持久化。
@@ -271,11 +285,13 @@ class TripService:
             request: 行程请求
             user_id: 可选用户ID
             use_cache: 是否启用缓存命中（默认 True）
+            on_event: 12.2 事件 sink（SSE 流式推送）；None 时保持原同步语义
 
         Returns:
             TripResponse，已补全地图/天气，并已写库
         """
         started_at = time.time()
+        emit = lambda event: self._emit_event(on_event, event)
 
         # 1. 城市归一化（"北京市" → "北京"）
         dest = _normalize_destination(request.destination)
@@ -295,6 +311,12 @@ class TripService:
                         }
                     })
                     logger.info(f"行程缓存命中: {cache_key}")
+                    emit({
+                        "type": "status",
+                        "stage": "cache_hit",
+                        "message": f"命中缓存，直接返回（{dest}）",
+                        "progress": STREAM_STAGES["cache_hit"],
+                    })
                     return trip
                 except Exception as e:
                     logger.warning(f"缓存反序列化失败，重新生成: {e}")
@@ -304,20 +326,43 @@ class TripService:
         callback_cm = self._make_token_callback()
         if callback_cm is not None:
             with callback_cm as cb:
-                trip = self._invoke_agent(request)
+                trip = self._invoke_agent(request, on_event=emit)
             token_usage = self._extract_token_usage(cb)
         else:
-            trip = self._invoke_agent(request)
+            trip = self._invoke_agent(request, on_event=emit)
+
+        # 3.1 草案骨架事件（补全/天气前先让前端看到行程框架）
+        emit(self._draft_event_payload(trip))
+        emit({
+            "type": "status",
+            "stage": "enrich",
+            "message": "补全地图坐标与景点图片",
+            "progress": STREAM_STAGES["enrich"],
+        })
 
         # 4. 地图补全（仅 geocode）
         enrich_warnings: List[str] = []
         trip = self._enrich_map(trip, request, enrich_warnings)
+
+        emit({
+            "type": "status",
+            "stage": "weather",
+            "message": "查询天气并生成出行建议",
+            "progress": STREAM_STAGES["weather"],
+        })
 
         # 5. 天气补全
         trip = self._enrich_weather(trip, request, enrich_warnings)
 
         # 5.1 天气出行建议（大模型基于天气生成两条简短建议）
         trip = self._enrich_weather_suggestions(trip, enrich_warnings)
+
+        emit({
+            "type": "status",
+            "stage": "finalize",
+            "message": "拆分预算并保存方案",
+            "progress": STREAM_STAGES["finalize"],
+        })
 
         # 6. 预算二次校正（基于补全后的真实门票）
         trip = self._recalculate_budget(trip, request)
@@ -436,34 +481,99 @@ class TripService:
     # Agent 调用：根据城市分级走不同分支
     # ------------------------------------------------------------------
 
-    def _invoke_agent(self, request: TripRequest) -> TripResponse:
+    def _invoke_agent(
+        self,
+        request: TripRequest,
+        *,
+        on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> TripResponse:
         """
         根据城市分级调用 TripPlannerAgent.plan：
 
-        - 沉淀城市：Agent 走 RAG 工具调用模式（use_tools=True）
-        - 动态城市：构建三池（景点/餐饮/住宿）+ 区域聚类 → 全链路 POI 驱动
-                    POI 拉取失败则降级回 RAG 路径
+        - 沉淀城市（A 级）：Agent 走 RAG 工具调用模式（use_tools=True），
+          POI 池在独立线程并行供图（12.2.5），供图失败不影响规划
+        - 动态城市（B 级）：构建三池（景点/餐饮/住宿）+ 区域聚类 → 全链路 POI 驱动，
+          POI 池就绪后先推 poi 事件再进 LLM（12.2.4）；拉取失败则降级回 RAG 路径
         """
+        emit = lambda event: self._emit_event(on_event, event)
         dest = request.destination
 
         if is_preset_city(dest):
             logger.info(f"沉淀城市 [{dest}]：Agent 走 RAG 工具")
-            return self._agent.plan(
-                request,
-                use_tools=True,
-                allow_fallback=True,
-            )
+            emit({
+                "type": "status",
+                "stage": "poi_pool",
+                "message": f"检索 {dest} 攻略与候选图片",
+                "progress": STREAM_STAGES["poi_pool"],
+            })
+            # 12.2.5 流式模式：POI 供图线程与 RAG/LLM 规划并行（供图失败不影响规划）
+            if on_event is not None:
+                pool: Optional[CandidatePool] = None
+                trip: Optional[TripResponse] = None
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool_exec:
+                        pool_future = pool_exec.submit(self._place_service.build_pool_sync, request)
+                        emit({
+                            "type": "status",
+                            "stage": "planning",
+                            "message": "大模型开始规划行程",
+                            "progress": STREAM_STAGES["planning"],
+                        })
+                        trip = self._agent.plan(request, use_tools=True, allow_fallback=True)
+                except Exception as e:
+                    logger.error(f"A 级城市规划失败 [{dest}]: {e}")
+                    raise
+                try:
+                    # with 退出（shutdown wait）保证供图已就绪；供图失败不影响已完成的规划
+                    pool = pool_future.result(timeout=30)
+                except Exception as e:
+                    logger.warning(f"A 级城市 POI 供图失败 [{dest}]: {e}")
+                    pool = None
+                if pool is not None:
+                    self._emit_poi_batches(pool, emit)
+                return trip
+            else:
+                # 非流式（普通 generate / 降级）：保持原语义，不额外拉池
+                emit({
+                    "type": "status",
+                    "stage": "planning",
+                    "message": "大模型开始规划行程",
+                    "progress": STREAM_STAGES["planning"],
+                })
+                return self._agent.plan(
+                    request,
+                    use_tools=True,
+                    allow_fallback=True,
+                )
 
         # 动态城市：构建三池（景点/餐饮/住宿）+ 区域聚类
         logger.info(f"动态城市 [{dest}]：构建 POI 三池（景点/餐饮/住宿）")
+        emit({
+            "type": "status",
+            "stage": "poi_pool",
+            "message": f"构建 {dest} POI 候选池",
+            "progress": STREAM_STAGES["poi_pool"],
+        })
         try:
             pool = self._place_service.build_pool_sync(request)
             sections = PlaceCandidateService.to_prompt_sections(pool)
             if not sections.get("scenic"):
                 logger.warning(f"动态城市 [{dest}] 景点池为空，退回 RAG 路径")
+                emit({
+                    "type": "status",
+                    "stage": "planning",
+                    "message": "大模型开始规划行程",
+                    "progress": STREAM_STAGES["planning"],
+                })
                 return self._agent.plan(request, use_tools=True, allow_fallback=True)
         except Exception as e:
             logger.warning(f"POI 三池构建失败: {e}，退回 RAG 路径")
+            emit({
+                "type": "status",
+                "stage": "planning",
+                "message": "大模型开始规划行程",
+                "progress": STREAM_STAGES["planning"],
+            })
             return self._agent.plan(request, use_tools=True, allow_fallback=True)
 
         logger.info(
@@ -474,12 +584,80 @@ class TripService:
             f"区域{len(sections.get('clusters') or {})}个"
         )
 
+        # POI 池就绪：先按类别分批推图，再进 LLM 规划
+        self._emit_poi_batches(pool, emit)
+        emit({
+            "type": "status",
+            "stage": "planning",
+            "message": "大模型开始规划行程",
+            "progress": STREAM_STAGES["planning"],
+        })
         return self._agent.plan(
             request,
             candidate_sections=sections,
             use_tools=False,
             allow_fallback=True,
         )
+
+    # ------------------------------------------------------------------
+    # 12.2 SSE 流式事件
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _emit_event(
+        on_event: Optional[Callable[[Dict[str, Any]], None]],
+        event: Dict[str, Any],
+    ) -> None:
+        """事件 sink 调用：失败不影响主流程（客户端断开时静默忽略）。"""
+        if on_event is None:
+            return
+        try:
+            on_event(event)
+        except Exception as e:
+            logger.debug(f"事件推送失败（忽略）: {e}")
+
+    @staticmethod
+    def _emit_poi_batches(
+        pool: CandidatePool,
+        emit: Callable[[Dict[str, Any]], None],
+    ) -> None:
+        """按 scenic/food/hotel 分批推 poi 事件（先于 LLM 返回）。"""
+        limits = {"scenic": 8, "food": 4, "hotel": 3}
+        for category, places in (
+            ("scenic", getattr(pool, "scenic_places", None) or []),
+            ("food", getattr(pool, "food_places", None) or []),
+            ("hotel", getattr(pool, "hotel_places", None) or []),
+        ):
+            items: List[Dict[str, Any]] = []
+            for p in places[: limits[category]]:
+                photos = [u for u in (p.photos or []) if isinstance(u, str) and u]
+                items.append({
+                    "name": p.name,
+                    "category": p.category or category,
+                    "address": p.address or None,
+                    "district": p.district,
+                    "rating": p.rating,
+                    "photos": photos,
+                    "score": round(float(p.score or 0.0), 3),
+                })
+            if items:
+                emit({"type": "poi", "category": category, "items": items})
+
+    @staticmethod
+    def _draft_event_payload(trip: TripResponse) -> Dict[str, Any]:
+        """草案骨架事件：每日地点名 + 主题 + 行程亮点（补全前先给前端）。"""
+        days: List[Dict[str, Any]] = []
+        for day in trip.days:
+            days.append({
+                "day_number": day.day_number,
+                "theme": day.day_theme or f"第{day.day_number}天",
+                "places": [item.place.name for item in day.items],
+            })
+        return {
+            "type": "draft",
+            "days": days,
+            "highlights": list(trip.trip_highlights or []),
+        }
 
     # ------------------------------------------------------------------
     # 地图补全（仅 geocode）

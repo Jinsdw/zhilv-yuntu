@@ -10,16 +10,19 @@
             DatabaseError）冒泡到 app/api/main.py 的全局异常处理器统一转 HTTP 状态码
 
 设计要点：
-    - 路由函数声明为同步 def（非 async def）：trip_service.generate_trip
-      是同步阻塞调用（内部含 LangGraph graph.invoke + SQLite +
-      通过 _run_async 桥接的 amap/weather 异步 IO）。同步 def 会被 FastAPI 丢进
-      线程池（run_in_threadpool）执行，避免阻塞事件循环。
+    - generate / preview 声明为同步 def（阻塞调用走 FastAPI 线程池）
+    - generate/stream 为 async def → StreamingResponse：线程池执行生成，
+      事件经 asyncio.Queue 桥接为 SSE 帧（status / poi / draft / final / error）
     - router 不携带 prefix，由 main.py include 时统一加 /trip，前缀归入口统一管理。
 """
 
-from typing import Optional
+import asyncio
+import json
+from typing import AsyncIterator, Dict, Optional
 
 from fastapi import APIRouter, Depends, Path, Query
+from fastapi.responses import StreamingResponse
+from loguru import logger
 
 from app.api.deps import get_device_id_optional, require_device_id
 
@@ -32,9 +35,20 @@ from app.models.schemas import (
     TripResponse,
     TripPreviewResponse,
 )
-from app.services.trip_service import TripNotFoundError, trip_service
+from app.services.trip_service import (
+    CityNotSupportedError,
+    TripNotFoundError,
+    trip_service,
+)
 
 router = APIRouter()
+
+
+def _format_sse_event(event: Dict[str, Any]) -> str:
+    """把事件 dict 格式化为 SSE 帧（event: <type> + data: JSON）。"""
+    event_type = event.get("type", "message")
+    payload = json.dumps(event, ensure_ascii=False, default=str)
+    return f"event: {event_type}\ndata: {payload}\n\n"
 
 
 @router.post("/generate", response_model=TripResponse, status_code=200)
@@ -60,6 +74,83 @@ def preview_trip(
     不调用 Agent / LLM，秒级返回；失败由 service 降级为空池，不抛错。
     """
     return trip_service.build_preview(request, user_id=device_id or user_id)
+
+
+@router.post("/generate/stream")
+async def generate_trip_stream(
+    request: TripRequest,
+    device_id: Optional[str] = Depends(get_device_id_optional),
+    user_id: Optional[str] = Query(None, description="可选用户ID"),
+) -> StreamingResponse:
+    """12.2 方案 B：SSE 流式生成行程。
+
+    事件序列（text/event-stream，每帧 event + data JSON）：
+        status(poi_pool/planning) → poi(按类别分批) → draft → status(enrich/weather/finalize) → final
+    缓存命中时：status(cache_hit) → final；生成失败：error 帧。
+    空闲 15s 发送 `: ping` 心跳注释行保活。
+    """
+    queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    user = device_id or user_id
+
+    async def run_generate() -> None:
+        """线程池执行同步 generate_trip，事件经 call_soon_threadsafe 入队。"""
+
+        def sink(event: Dict[str, Any]) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, event)
+
+        try:
+            trip = await asyncio.to_thread(
+                trip_service.generate_trip,
+                request,
+                user_id=user,
+                use_cache=True,
+                on_event=sink,
+            )
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                {"type": "final", "trip": trip.model_dump(mode="json")},
+            )
+        except Exception as e:
+            logger.warning(f"流式生成失败: {e}")
+            code = (
+                "CITY_NOT_SUPPORTED"
+                if isinstance(e, CityNotSupportedError)
+                else "TRIP_SERVICE_ERROR"
+            )
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                {"type": "error", "error_code": code, "message": str(e)},
+            )
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)  # 结束哨兵
+
+    task = asyncio.create_task(run_generate())
+
+    async def event_stream() -> AsyncIterator[str]:
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                if event is None:
+                    break
+                yield _format_sse_event(event)
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 @router.get("/history", response_model=TripHistoryListResponse, status_code=200)
 def list_history(
     device_id: str = Depends(require_device_id),

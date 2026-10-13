@@ -34,6 +34,9 @@ export default defineConfig(({ mode }) => {
         '/trip': {
           target: env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
           changeOrigin: true,
+          // 12.2 SSE 流式：关闭代理压缩避免缓冲，放宽 socket 超时到 5 分钟
+          compress: false,
+          timeout: 300_000,
         },
         '/weather': {
           target: env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',

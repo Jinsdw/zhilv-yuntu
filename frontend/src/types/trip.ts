@@ -136,3 +136,27 @@ export interface TripPreviewResponse {
   /** 非阻断性警告 */
   warnings: string[]
 }
+
+/** 草案骨架：单日预览（12.2 方案 B：draft 事件） */
+export interface DraftDayPreview {
+  /** 第几天 */
+  day_number: number
+  /** 当日主题 */
+  theme?: string
+  /** 当日地点名列表 */
+  places: string[]
+}
+
+/** 草案骨架（12.2 方案 B：LLM 草案成形后、补全前先推给前端） */
+export interface DraftSkeleton {
+  days: DraftDayPreview[]
+  highlights?: string[]
+}
+
+/** 12.2 SSE 流式事件：与后端 /trip/generate/stream 事件协议对齐 */
+export type StreamEvent =
+  | { type: 'status'; stage: string; message: string; progress: number }
+  | { type: 'poi'; category: 'scenic' | 'food' | 'hotel'; items: PreviewCandidate[] }
+  | { type: 'draft'; days: DraftDayPreview[]; highlights: string[] }
+  | { type: 'final'; trip: TripResponse }
+  | { type: 'error'; error_code?: string; message: string }
