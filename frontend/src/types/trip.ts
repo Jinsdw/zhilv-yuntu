@@ -155,8 +155,9 @@ export interface DraftSkeleton {
 
 /** 12.2 SSE 流式事件：与后端 /trip/generate/stream 事件协议对齐 */
 export type StreamEvent =
-  | { type: 'status'; stage: string; message: string; progress: number }
+  | { type: 'status'; stage: string; message: string; progress: number; day_number?: number; total_days?: number }
   | { type: 'poi'; category: 'scenic' | 'food' | 'hotel'; items: PreviewCandidate[] }
   | { type: 'draft'; days: DraftDayPreview[]; highlights: string[] }
+  | { type: 'day'; state: 'draft' | 'enriched'; day_number: number; total_days: number; theme?: string | null; places?: string[]; day_summary?: string | null; day?: ItineraryDay }
   | { type: 'final'; trip: TripResponse }
   | { type: 'error'; error_code?: string; message: string }

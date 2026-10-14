@@ -65,5 +65,10 @@ docker compose up -d backend redis
 - **配置**：`.env` 前后端共用（`Settings` 配置 `extra="ignore"`）；`CHROMA_DB_PATH`/`DATABASE_URL` 相对路径基于项目根解析，避免启动目录不同导致连错库。
 - **城市分级**：A 级（北京、大理、成都、西安、厦门、三亚）走本地攻略 RAG；B 级走高德 POI 候选池；C 级（省级等）返回错误。
 - **测试**：`backend/tests/` 用 mock 服务层（不打真实 LLM/高德/SQLite）；修改服务层后运行对应测试文件。
-- **进度同步**：完成功能后按项目约定更新 `.cursor/rules/PROGRESS.md` 与 `REPLICATION_TASKS.md` 中的勾选状态。
+- **进度同步（防漏，四缺一不可）**：完成功能后必须同步更新四处，缺一不可：
+  ① `REPLICATION_TASKS.md` 对应子任务 `[ ]` → `[x]`；
+  ② `.cursor/rules/PROGRESS.md` 对应「阶段明细表」逐项 `⏳` → `✅`；
+  ③ `.cursor/rules/PROGRESS.md` 顶部「阶段进度概览」百分比/进度条与阶段标题备注；
+  ④ `.cursor/rules/PROGRESS.md`「版本更新记录」追加本次变更条目。
+  严禁只更新概览/版本记录而遗漏阶段明细表（此前已多次出现，视为违规）。
 - **日志**：loguru 统一落盘到 `backend/logs/app.log`（10MB 轮转、7 天保留）。

@@ -265,7 +265,7 @@ export const tripApi = {
    * 12.2 流式生成行程（SSE）
    * POST /trip/generate/stream
    * 说明：fetch + ReadableStream 解析 SSE（EventSource 不支持 POST body）；
-   * onEvent 逐帧回调（status / poi / draft）；final 帧 resolve 完整 TripResponse；
+   * onEvent 逐帧回调（status / poi / draft / day，daily 模式 day 事件含 draft/enriched 两版）；final 帧 resolve 完整 TripResponse；
    * error 帧 reject ApiError（携带 error_code）；传输中断 reject isNetworkError=true，
    * 调用方可据此降级回普通 generate。
    */

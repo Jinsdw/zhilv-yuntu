@@ -10,7 +10,7 @@ import { Alert, App as AntdApp, Card, Flex, Form, Tag, Typography, theme } from 
 import { useNavigate } from 'react-router-dom'
 
 import TripPlannerForm, { type TripFormValues } from '@/components/trip/TripPlannerForm'
-import type { LiveStreamState } from '@/components/trip/LiveGenerationPanel'
+import type { LiveDayItem, LiveStreamState } from '@/components/trip/LiveGenerationPanel'
 import { PRESET_CITIES } from '@/constants/options'
 import { ROUTES } from '@/router/routes'
 import { ApiError, tripApi } from '@/services/api'
@@ -50,7 +50,17 @@ export default function Home() {
       case 'status':
         setLiveStream((prev) =>
           prev
-            ? { ...prev, stage: event.stage, message: event.message, progress: event.progress }
+            ? {
+                ...prev,
+                stage: event.stage,
+                message: event.message,
+                progress: event.progress,
+                // 13.5.2 day_generating：记录当前生成中的天，供「第 N/M 天生成中」文案
+                currentDay:
+                  event.stage === 'day_generating' && event.day_number && event.total_days
+                    ? { day_number: event.day_number, total_days: event.total_days }
+                    : prev.currentDay,
+              }
             : prev,
         )
         break
@@ -62,6 +72,44 @@ export default function Home() {
           prev ? { ...prev, draft: { days: event.days, highlights: event.highlights } } : prev,
         )
         break
+      case 'day': {
+        // 13.5.1 day 事件累积：draft → enriched 原地升级；enriched 从整份 ItineraryDay 取地点链
+        const item: LiveDayItem =
+          event.state === 'enriched' && event.day
+            ? {
+                day_number: event.day_number,
+                state: 'enriched',
+                theme: event.day.day_theme ?? event.theme ?? null,
+                places: event.day.items.map((it) => it.place.name),
+                day_summary: event.day_summary ?? null,
+              }
+            : {
+                day_number: event.day_number,
+                state: 'draft',
+                theme: event.theme ?? null,
+                places: event.places ?? [],
+                day_summary: event.day_summary ?? null,
+              }
+        setLiveStream((prev) => {
+          if (!prev) return prev
+          const existing = prev.days.find((d) => d.day_number === item.day_number)
+          const merged = existing
+            ? { ...item, day_summary: item.day_summary ?? existing.day_summary }
+            : item
+          const days = existing
+            ? prev.days.map((d) => (d.day_number === item.day_number ? merged : d))
+            : [...prev.days, merged].sort((a, b) => a.day_number - b.day_number)
+          return {
+            ...prev,
+            days,
+            currentDay: null,
+            // 13.5.2 天完成后清空 currentDay，避免面板误显示「生成中」（等待下一天 day_generating 状态）
+            message: `第 ${event.day_number}/${event.total_days} 天已完成`,
+            progress: Math.min(95, Math.round(45 + (event.day_number / event.total_days) * 50)),
+          }
+        })
+        break
+      }
       default:
         break
     }
@@ -87,12 +135,12 @@ export default function Home() {
     setCityError(null)
     setPreview(null)
     seenRef.current = new Set()
-    setLiveStream({ candidates: [], stage: 'init', message: '正在连接生成服务…', progress: 0, draft: null })
+    setLiveStream({ candidates: [], stage: 'init', message: '正在连接生成服务…', progress: 0, draft: null, days: [], currentDay: null })
     // 12.1 预览并行拉取：流式开始前先出图；失败静默降级
     startPreview(request)
 
     try {
-      // 12.2 优先走 SSE 流式：status/poi/draft 逐帧更新实时面板
+      // 12.2 优先走 SSE 流式：status/poi/draft/day 逐帧更新实时面板（13.5.1 day 事件累积渲染）
       const trip: TripResponse = await tripApi.generateStream(request, handleStreamEvent)
       navigateToResult(trip, request)
       return
