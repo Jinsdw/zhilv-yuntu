@@ -1,7 +1,7 @@
 """12.2 方案 B：SSE 流式生成接口测试（mock 服务层，不打真实 LLM / 高德）
 
 覆盖：事件顺序（poi/draft 先于 final）、final 含完整行程、error 帧（C 级/服务错误）、
-缓存命中快速路径、事件 sink 注入。
+缓存命中快速路径、daily 模式 day(draft)/day(enriched) 帧顺序、事件 sink 注入。
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ class TestGenerateStream:
 
     def test_stream_emits_poi_before_final(self, client):
         """事件顺序：status/poi/draft 先于 final；final 含完整行程"""
-        def fake_generate(request, *, user_id=None, use_cache=True, on_event=None):
+        def fake_generate(request, *, user_id=None, use_cache=True, on_event=None, gen_mode=None):
             assert on_event is not None  # 事件 sink 已注入
             on_event({"type": "status", "stage": "poi_pool", "message": "构建候选池", "progress": 15})
             on_event({
@@ -139,6 +139,41 @@ class TestGenerateStream:
         assert events.index("draft") < events.index("final")
         final_data = next(d for e, d in frames if e == "final")
         assert final_data["trip"]["trip_id"] == "TRP-STREAM-001"
+
+    def test_stream_daily_emits_day_frames_before_final(self, client):
+        """daily 模式：status(day_generating) → day(draft) → day(enriched) → final"""
+        def fake_daily(request, *, user_id=None, use_cache=True, on_event=None, gen_mode=None):
+            assert gen_mode == "daily"  # query 参数透传到服务层
+            on_event({"type": "status", "stage": "day_generating", "day_number": 1, "total_days": 2})
+            on_event({
+                "type": "day",
+                "state": "draft",
+                "day_number": 1,
+                "total_days": 2,
+                "theme": "文化之旅",
+                "places": ["故宫"],
+                "day_summary": "上午故宫。",
+            })
+            on_event({
+                "type": "day",
+                "state": "enriched",
+                "day_number": 1,
+                "total_days": 2,
+                "day": _sample_trip().days[0].model_dump(mode="json"),
+            })
+            return _sample_trip()
+
+        with patch("app.api.routes.trip.trip_service.generate_trip", new=fake_daily):
+            resp = client.post("/trip/generate/stream?mode=daily", json=_future_trip_request())
+        assert resp.status_code == 200
+        frames = self._frames(resp.text)
+        events = [e for e, _ in frames]
+        assert "day" in events and "final" in events
+        day_frames = [(d["state"], d["day_number"]) for e, d in frames if e == "day"]
+        assert day_frames == [("draft", 1), ("enriched", 1)]
+        assert events.index("day") < events.index("final")
+        statuses = [d for e, d in frames if e == "status"]
+        assert any(s["stage"] == "day_generating" for s in statuses)
 
     def test_stream_city_not_supported_error_frame(self, client):
         """C 级目的地 → error 帧（CITY_NOT_SUPPORTED），HTTP 仍 200"""

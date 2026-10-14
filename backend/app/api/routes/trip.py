@@ -56,10 +56,19 @@ def generate_trip(
     request: TripRequest,
     device_id: Optional[str] = Depends(get_device_id_optional),
     user_id: Optional[str] = Query(None, description="可选用户ID"),
+    mode: Optional[str] = Query(None, description="生成模式：batch|daily，缺省跟随 TRIP_GEN_MODE"),
 ) -> TripResponse:
-    """生成行程（同步阻塞，走线程池；已持久化并回填 trip_id）。"""
+    """生成行程（同步阻塞，走线程池；已持久化并回填 trip_id）。
+
+    模式：batch 一次生成全部；daily（默认）逐天生成（多次 LLM 调用），
+    非流式下走同一逐天路径仅不推事件。
+    """
     # 设备指纹标识优先，兼容旧客户端通过 query 传 user_id
-    return trip_service.generate_trip(request, user_id=device_id or user_id)
+    return trip_service.generate_trip(
+        request,
+        user_id=device_id or user_id,
+        gen_mode=mode,
+    )
 
 
 @router.post("/preview", response_model=TripPreviewResponse, status_code=200)
@@ -81,11 +90,15 @@ async def generate_trip_stream(
     request: TripRequest,
     device_id: Optional[str] = Depends(get_device_id_optional),
     user_id: Optional[str] = Query(None, description="可选用户ID"),
+    mode: Optional[str] = Query(None, description="生成模式：batch|daily，缺省跟随 TRIP_GEN_MODE"),
 ) -> StreamingResponse:
     """12.2 方案 B：SSE 流式生成行程。
 
     事件序列（text/event-stream，每帧 event + data JSON）：
-        status(poi_pool/planning) → poi(按类别分批) → draft → status(enrich/weather/finalize) → final
+        batch：status(poi_pool/planning) → poi(按类别分批) → draft → status(enrich/weather/finalize) → final
+        daily（TRIP_GEN_MODE=daily 或 ?mode=daily）：
+            status(poi_pool) → poi → status(planning) →
+            [status(day_generating) → day(draft) → day(enriched)] × N → status(finalize) → final
     缓存命中时：status(cache_hit) → final；生成失败：error 帧。
     空闲 15s 发送 `: ping` 心跳注释行保活。
     """
@@ -106,6 +119,7 @@ async def generate_trip_stream(
                 user_id=user,
                 use_cache=True,
                 on_event=sink,
+                gen_mode=mode,
             )
             loop.call_soon_threadsafe(
                 queue.put_nowait,

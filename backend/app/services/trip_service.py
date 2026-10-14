@@ -29,11 +29,13 @@ import hashlib
 import inspect
 import json
 import time
-from datetime import date as date_type
+import uuid
+from datetime import date as date_type, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
 
+from app.agents.day_chain import _agent_shell, render_day_summary_line, run_day_chain
 from app.agents.llm_factory import (
     build_json_llm,
     get_llm_thinking_config,
@@ -41,10 +43,16 @@ from app.agents.llm_factory import (
     log_llm_reasoning_from_message,
     log_llm_request,
 )
-from app.agents.trip_planner_agent import TripPlannerAgent, trip_planner_agent
+from app.agents.rag_tool import rag_tool as default_rag_tool
+from app.agents.trip_planner_agent import (
+    DEFAULT_RATING,
+    TripPlannerAgent,
+    trip_planner_agent,
+)
 from langchain_core.messages import HumanMessage
-from app.config import settings
+from app.config import get_active_llm_config, settings
 from app.models.schemas import (
+    BudgetInfo,
     Coordinate,
     ItineraryDay,
     ItineraryItem,
@@ -93,6 +101,7 @@ STREAM_STAGES: Dict[str, int] = {
     "cache_hit": 100,
     "poi_pool": 15,
     "planning": 30,
+    "day_generating": 40,
     "draft": 45,
     "enrich": 70,
     "weather": 85,
@@ -277,15 +286,18 @@ class TripService:
         user_id: Optional[str] = None,
         use_cache: bool = True,
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+        gen_mode: Optional[str] = None,
     ) -> TripResponse:
         """
-        生成行程：Agent 产出草案 → 地图补全 → 天气补全 → token 统计 → 持久化。
+        生成行程：缓存直出 → 分派 batch（Agent 整份生成）或 daily（逐天生成）
+        → 补全 → token 统计 → 持久化。
 
         Args:
             request: 行程请求
             user_id: 可选用户ID
             use_cache: 是否启用缓存命中（默认 True）
             on_event: 12.2 事件 sink（SSE 流式推送）；None 时保持原同步语义
+            gen_mode: 生成模式覆盖（batch | daily）；None 时跟随 settings.TRIP_GEN_MODE
 
         Returns:
             TripResponse，已补全地图/天气，并已写库
@@ -297,75 +309,58 @@ class TripService:
         dest = _normalize_destination(request.destination)
         request = request.model_copy(update={"destination": dest})
 
-        # 2. 缓存命中检查
+        # 2. 缓存命中检查（batch / daily 共用同一 cache key，结果结构等价互命中）
         cache_key = self._trip_cache_key(request, user_id)
-        if use_cache:
-            cached = self._safe_cache_get(cache_key)
-            if cached is not None:
-                try:
-                    trip = TripResponse.model_validate(cached)
-                    trip = trip.model_copy(update={
-                        "metadata": {
-                            **(trip.metadata or {}),
-                            "cache_hit": True,
-                        }
-                    })
-                    logger.info(f"行程缓存命中: {cache_key}")
-                    emit({
-                        "type": "status",
-                        "stage": "cache_hit",
-                        "message": f"命中缓存，直接返回（{dest}）",
-                        "progress": STREAM_STAGES["cache_hit"],
-                    })
-                    return trip
-                except Exception as e:
-                    logger.warning(f"缓存反序列化失败，重新生成: {e}")
+        cached_trip = self._try_cache_hit(cache_key, use_cache, emit)
+        if cached_trip is not None:
+            return cached_trip
 
-        # 3. Agent 调用（包裹 token callback）
+        # 2.1 生成模式分派：请求级 gen_mode 优先，缺省跟随 settings.TRIP_GEN_MODE
+        mode = self._resolve_gen_mode(gen_mode)
+        logger.info(f"行程生成模式: {mode}（TRIP_GEN_MODE={settings.TRIP_GEN_MODE}）")
+
+        # 3. 生成调用（包裹 token callback）
         token_usage: Dict[str, Any] = {}
+        enrich_warnings: List[str] = []
         callback_cm = self._make_token_callback()
+
+        def _run_plan() -> TripResponse:
+            if mode == "daily":
+                # 13.3.1 逐天循环（含单日补全/天气挂载/day 事件/全量收尾）
+                return self._generate_daily(request, on_event=emit)
+
+            # batch：Agent 一次生成 → 整份补全（12.2 基线语义不变）
+            trip = self._invoke_agent(request, on_event=emit)
+            emit(self._draft_event_payload(trip))
+            emit({
+                "type": "status",
+                "stage": "enrich",
+                "message": "补全地图坐标与景点图片",
+                "progress": STREAM_STAGES["enrich"],
+            })
+            trip = self._enrich_map(trip, request, enrich_warnings)
+            emit({
+                "type": "status",
+                "stage": "weather",
+                "message": "查询天气并生成出行建议",
+                "progress": STREAM_STAGES["weather"],
+            })
+            trip = self._enrich_weather(trip, request, enrich_warnings)
+            trip = self._enrich_weather_suggestions(trip, enrich_warnings)
+            emit({
+                "type": "status",
+                "stage": "finalize",
+                "message": "拆分预算并保存方案",
+                "progress": STREAM_STAGES["finalize"],
+            })
+            return self._recalculate_budget(trip, request)
+
         if callback_cm is not None:
             with callback_cm as cb:
-                trip = self._invoke_agent(request, on_event=emit)
+                trip = _run_plan()
             token_usage = self._extract_token_usage(cb)
         else:
-            trip = self._invoke_agent(request, on_event=emit)
-
-        # 3.1 草案骨架事件（补全/天气前先让前端看到行程框架）
-        emit(self._draft_event_payload(trip))
-        emit({
-            "type": "status",
-            "stage": "enrich",
-            "message": "补全地图坐标与景点图片",
-            "progress": STREAM_STAGES["enrich"],
-        })
-
-        # 4. 地图补全（仅 geocode）
-        enrich_warnings: List[str] = []
-        trip = self._enrich_map(trip, request, enrich_warnings)
-
-        emit({
-            "type": "status",
-            "stage": "weather",
-            "message": "查询天气并生成出行建议",
-            "progress": STREAM_STAGES["weather"],
-        })
-
-        # 5. 天气补全
-        trip = self._enrich_weather(trip, request, enrich_warnings)
-
-        # 5.1 天气出行建议（大模型基于天气生成两条简短建议）
-        trip = self._enrich_weather_suggestions(trip, enrich_warnings)
-
-        emit({
-            "type": "status",
-            "stage": "finalize",
-            "message": "拆分预算并保存方案",
-            "progress": STREAM_STAGES["finalize"],
-        })
-
-        # 6. 预算二次校正（基于补全后的真实门票）
-        trip = self._recalculate_budget(trip, request)
+            trip = _run_plan()
 
         # 7. 元数据回填（token / warnings / 耗时）
         meta = dict(trip.metadata or {})
@@ -392,6 +387,519 @@ class TripService:
             self._safe_cache_set(cache_key, trip)
 
         return trip
+
+    # ================================================================
+    # 13.3 方案B：逐天编排循环（真·逐天生成，多次 LLM 调用）
+    # ================================================================
+
+    def _try_cache_hit(
+        self,
+        cache_key: str,
+        use_cache: bool,
+        emit: Callable[[Dict[str, Any]], None],
+    ) -> Optional[TripResponse]:
+        """缓存命中直出（batch / daily 共用同一 cache key，结果结构等价互命中）。"""
+        if not use_cache:
+            return None
+        cached = self._safe_cache_get(cache_key)
+        if cached is None:
+            return None
+        try:
+            trip = TripResponse.model_validate(cached)
+            trip = trip.model_copy(update={
+                "metadata": {
+                    **(trip.metadata or {}),
+                    "cache_hit": True,
+                }
+            })
+            logger.info(f"行程缓存命中: {cache_key}")
+            emit({
+                "type": "status",
+                "stage": "cache_hit",
+                "message": "命中缓存，直接返回",
+                "progress": STREAM_STAGES["cache_hit"],
+            })
+            return trip
+        except Exception as e:
+            logger.warning(f"缓存反序列化失败，重新生成: {e}")
+            return None
+
+    @staticmethod
+    def _resolve_gen_mode(override: Optional[str]) -> str:
+        """生成模式解析：请求级 override 优先，缺省跟随 settings.TRIP_GEN_MODE。"""
+        if override in ("batch", "daily"):
+            return override
+        mode = getattr(settings, "TRIP_GEN_MODE", "daily")
+        return mode if mode in ("batch", "daily") else "daily"
+
+    def _generate_daily(
+        self,
+        request: TripRequest,
+        *,
+        on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> TripResponse:
+        """13.3.1 逐天编排循环：prepare → for day in 1..N: run_day_chain →
+        跨天记忆 → day(draft) 事件 → 单日地图/图片补全 → 天气挂载 →
+        day(enriched) 事件 → append；最后 _finalize_daily 全量收尾。
+
+        非流式（on_event=None）走同一路径，仅不推事件。
+        单日兜底仍失败（罕见）时中止整份并抛 TripServiceError，不持久化部分行程。
+        """
+        emit = lambda event: self._emit_event(on_event, event)
+
+        state = self._prepare_day_state(request, emit)
+        total_days = state["total_days"]
+        day_dates = state["day_dates"]
+        warnings: List[str] = []
+        days: List[ItineraryDay] = []
+        daily_meta: Dict[str, Any] = {
+            "daily_llm_calls": [],
+            "fallback_days": [],
+            "repair_days": [],
+        }
+
+        emit({
+            "type": "status",
+            "stage": "planning",
+            "message": "大模型开始逐天规划行程",
+            "progress": STREAM_STAGES["planning"],
+        })
+
+        # 天气一次性取整段预报（1 次调用），逐天按日期挂载
+        forecast_by_date = self._fetch_forecast_by_date(request)
+        if not forecast_by_date:
+            warnings.append("天气预报未获取到，各天天气留空")
+
+        amap = self._get_amap_geo()
+        if amap is None:
+            warnings.append("amap_geo 服务不可用，地图未补全")
+        city_adcode = (
+            self._resolve_city_adcode(request.destination) if amap is not None else None
+        )
+        photo_cache: Dict[str, List[str]] = {}
+        city = request.destination
+
+        for day_no in range(1, total_days + 1):
+            day_state: Dict[str, Any] = {
+                **state,
+                "day_number": day_no,
+                "day_date": day_dates[day_no - 1],
+                "day_summaries": list(state["day_summaries"]),
+                "used_place_ids": list(state["used_place_ids"]),
+                "used_names": list(state["used_names"]),
+                "prev_district": state["prev_district"],
+                "prev_hotel": state["prev_hotel"],
+                "accumulated_budget": state["accumulated_budget"],
+                "meta": {},
+            }
+            res = run_day_chain(day_state, on_event=on_event)
+
+            if res.get("error"):
+                logger.error(f"第{day_no}天生成失败且兜底失败: {res['error']}")
+                raise TripServiceError(f"第{day_no}天生成失败: {res['error']}")
+
+            # 13.3.2 跨天记忆维护（供下一天 build_day_prompt 渲染前 N-1 天摘要）
+            memory = res.get("memory") or {}
+            state["used_place_ids"] += list(memory.get("used_place_ids_added") or [])
+            state["used_names"] += list(memory.get("used_names_added") or [])
+            if memory.get("prev_district"):
+                state["prev_district"] = memory["prev_district"]
+            if memory.get("prev_hotel"):
+                state["prev_hotel"] = memory["prev_hotel"]
+            summary = memory.get("day_summary")
+            if summary:
+                state["day_summaries"].append(summary)
+                try:
+                    state["accumulated_budget"] += float(summary.get("cost") or 0.0)
+                except (TypeError, ValueError):
+                    pass
+
+            day_meta = res.get("meta") or {}
+            daily_meta["daily_llm_calls"].extend(day_meta.get("daily_llm_calls") or [])
+            if day_meta.get("day_repair_used"):
+                daily_meta["repair_days"].append(day_no)
+            if res.get("fallback_used"):
+                daily_meta["fallback_days"].append(day_no)
+
+            day_warnings = list(res.get("day_warnings") or [])
+            warnings.extend(day_warnings)
+            day = res["day"]
+
+            # 草案版 day 事件（补全前先给前端：主题 + 地点链 + day_summary）
+            emit(self._day_draft_event_payload(day_no, total_days, res.get("draft_day")))
+
+            # 单日地图/图片补全（占位坐标 → 真实坐标/地址/图片；失败不影响当天）
+            if amap is not None:
+                day = self._enrich_day_map(day, city, amap, warnings, photo_cache, city_adcode)
+
+            # 天气挂载（无预报保持 None）
+            day = self._attach_day_weather(day, forecast_by_date)
+
+            # 补全版 day 事件
+            emit({
+                "type": "day",
+                "state": "enriched",
+                "day_number": day_no,
+                "total_days": total_days,
+                "day": day.model_dump(mode="json"),
+            })
+
+            days.append(day)
+
+        emit({
+            "type": "status",
+            "stage": "finalize",
+            "message": "汇总行程亮点并保存方案",
+            "progress": STREAM_STAGES["finalize"],
+        })
+
+        return self._finalize_daily(request, days, state, warnings, daily_meta)
+
+    def _prepare_day_state(
+        self,
+        request: TripRequest,
+        emit: Callable[[Dict[str, Any]], None],
+    ) -> Dict[str, Any]:
+        """城市级一次性准备 → DayGenState 循环不变量（13.1.2）。
+
+        - A 级（沉淀城市）：rag_tool.search_for_trip 一次（生成上下文）+
+          build_pool_sync 一次（仅供图/poi 事件，失败不影响规划）
+        - B 级（动态城市）：build_pool_sync 一次 → sections/index/clusters；
+          景点池为空或构建失败降级回 RAG 路径（与 batch _invoke_agent 一致）
+        """
+        dest = request.destination
+        total_days = (request.end_date - request.start_date).days + 1
+        day_dates = [request.start_date + timedelta(days=i) for i in range(total_days)]
+        state: Dict[str, Any] = {
+            "request": request,
+            "total_days": total_days,
+            "day_dates": day_dates,
+            "global_constraints": {},
+            "candidate_sections": {},
+            "rag_context": "",
+            "candidate_index": {},
+            "district_clusters": {},
+            "food_candidates": [],
+            "hotel_candidates": [],
+            "used_place_ids": [],
+            "used_names": [],
+            "prev_district": None,
+            "prev_hotel": None,
+            "day_summaries": [],
+            "accumulated_budget": 0.0,
+            "meta": {},
+        }
+
+        if is_preset_city(dest):
+            logger.info(f"沉淀城市 [{dest}]：逐天模式走 RAG 工具")
+            emit({
+                "type": "status",
+                "stage": "poi_pool",
+                "message": f"检索 {dest} 攻略与候选图片",
+                "progress": STREAM_STAGES["poi_pool"],
+            })
+            state["rag_context"] = self._search_rag_context(request)
+            try:
+                pool = self._place_service.build_pool_sync(request)
+                self._emit_poi_batches(pool, emit)
+            except Exception as e:
+                logger.warning(f"A 级城市 POI 供图失败 [{dest}]: {e}")
+            return state
+
+        # 动态城市（B 级）：POI 三池驱动
+        logger.info(f"动态城市 [{dest}]：构建 POI 三池（景点/餐饮/住宿）")
+        emit({
+            "type": "status",
+            "stage": "poi_pool",
+            "message": f"构建 {dest} POI 候选池",
+            "progress": STREAM_STAGES["poi_pool"],
+        })
+        try:
+            pool = self._place_service.build_pool_sync(request)
+        except Exception as e:
+            logger.warning(f"POI 三池构建失败: {e}，退回 RAG 路径")
+            state["rag_context"] = self._search_rag_context(request)
+            return state
+
+        sections = PlaceCandidateService.to_prompt_sections(pool)
+        if not sections.get("scenic"):
+            logger.warning(f"动态城市 [{dest}] 景点池为空，退回 RAG 路径")
+            state["rag_context"] = self._search_rag_context(request)
+            return state
+
+        state["candidate_sections"] = sections
+        state["candidate_index"] = sections.get("index") or {}
+        state["district_clusters"] = sections.get("clusters") or {}
+        state["food_candidates"] = sections.get("food") or []
+        state["hotel_candidates"] = sections.get("hotel") or []
+        logger.info(
+            f"动态城市 [{dest}] 候选池: "
+            f"景点{len(sections.get('scenic') or [])}个 "
+            f"餐饮{len(state['food_candidates'])}个 "
+            f"住宿{len(state['hotel_candidates'])}个 "
+            f"区域{len(state['district_clusters'])}个"
+        )
+        self._emit_poi_batches(pool, emit)
+        return state
+
+    def _search_rag_context(self, request: TripRequest) -> str:
+        """A 级 / B 级降级：攻略检索一次，失败返回空（由单日链兜底）。"""
+        try:
+            result = default_rag_tool.search_for_trip(request)
+            return getattr(result, "context_text", "") or ""
+        except Exception as e:
+            logger.warning(f"攻略检索失败 [{request.destination}]: {e}")
+            return ""
+
+    @staticmethod
+    def _day_draft_event_payload(
+        day_number: int,
+        total_days: int,
+        draft_day: Any,
+    ) -> Dict[str, Any]:
+        """草案版 day 事件：主题 + 地点链 + day_summary（13.1.5 day=draft）。"""
+        theme = None
+        summary = None
+        places: List[str] = []
+        if draft_day is not None:
+            theme = getattr(draft_day, "day_theme", None)
+            summary = getattr(draft_day, "day_summary", None)
+            places = [it.name for it in (getattr(draft_day, "items", None) or [])]
+        return {
+            "type": "day",
+            "state": "draft",
+            "day_number": day_number,
+            "total_days": total_days,
+            "theme": theme,
+            "places": places,
+            "day_summary": summary,
+        }
+
+    def _fetch_forecast_by_date(
+        self,
+        request: TripRequest,
+    ) -> Optional[Dict[date_type, WeatherInfo]]:
+        """一次性取整段行程的天气预报 → forecast_date → WeatherInfo（1 次调用）。"""
+        weather_svc = self._get_weather_service()
+        if weather_svc is None:
+            return None
+        total_days = (request.end_date - request.start_date).days + 1
+        try:
+            city_weather_map = _run_async(
+                weather_svc.get_trip_weather(
+                    [request.destination],
+                    request.start_date,
+                    total_days,
+                )
+            )
+        except Exception as e:
+            logger.warning(f"天气查询失败: {e}")
+            return None
+        forecasts = city_weather_map.get(request.destination) or []
+        if not forecasts:
+            return None
+        by_date: Dict[date_type, WeatherInfo] = {}
+        for f in forecasts:
+            if f.forecast_date is not None:
+                by_date[f.forecast_date] = f
+        # 预报条数少于天数时按 day_number 位置兜底
+        for i, f in enumerate(forecasts):
+            by_date.setdefault(request.start_date + timedelta(days=i), f)
+        return by_date
+
+    @staticmethod
+    def _attach_day_weather(
+        day: ItineraryDay,
+        forecast_by_date: Optional[Dict[date_type, WeatherInfo]],
+    ) -> ItineraryDay:
+        """按 itinerary_date 挂载当日天气；无预报时保持 None。"""
+        if not forecast_by_date:
+            return day
+        w = forecast_by_date.get(day.itinerary_date)
+        if w is None:
+            return day
+        return day.model_copy(update={"weather": w})
+
+    def _finalize_daily(
+        self,
+        request: TripRequest,
+        days: List[ItineraryDay],
+        state: Dict[str, Any],
+        warnings: List[str],
+        daily_meta: Dict[str, Any],
+    ) -> TripResponse:
+        """13.3.3 全量收尾：聚合整份元信息 → TripResponse → 天气建议 → 预算校正。
+
+        trip_name / highlights / tips / foods / shopping 由最后一轮 LLM 小调用生成
+        （13.4.4，失败降级本地聚合）；special_needs_notes 本地确定性生成。
+        """
+        aggregated = self._aggregate_trip_summary(request, state["day_summaries"])
+        overall_rating = (
+            round(sum(d.total_rating for d in days) / len(days), 1) if days else DEFAULT_RATING
+        )
+        overall_rating = min(5.0, max(0.0, overall_rating))
+
+        meta = {
+            "needs_enrichment": False,
+            "generation_mode": "daily",
+            "gen_mode": "daily",
+            "day_warnings": list(warnings),
+            "enrich_warnings": list(warnings),
+            **daily_meta,
+        }
+
+        trip = TripResponse(
+            trip_id=str(uuid.uuid4()),
+            destination=request.destination,
+            trip_name=aggregated["trip_name"],
+            start_date=request.start_date,
+            end_date=request.end_date,
+            total_days=state["total_days"],
+            days=days,
+            overall_rating=overall_rating,
+            budget=BudgetInfo(
+                total_budget=0,
+                daily_avg_budget=0,
+                budget_per_person=0,
+            ),
+            trip_highlights=aggregated["trip_highlights"],
+            trip_tips=aggregated["trip_tips"],
+            special_needs_notes=self._special_needs_notes(request),
+            recommended_foods=aggregated["recommended_foods"],
+            recommended_shopping=aggregated["recommended_shopping"],
+            generated_at=datetime.now(),
+            model_used=get_active_llm_config().get("model"),
+            metadata=meta,
+        )
+        trip = self._enrich_weather_suggestions(trip, warnings)
+        trip = _agent_shell().enrich_budget_and_summary(trip, request)
+        return self._recalculate_budget(trip, request)
+
+    def _aggregate_trip_summary(
+        self,
+        request: TripRequest,
+        day_summaries: List[dict],
+    ) -> Dict[str, Any]:
+        """13.4.4 最后一轮 LLM 小调用：由 N 天紧凑摘要聚合整份行程元信息。
+
+        失败（LLM 异常 / JSON 非法）自动降级为本地聚合（_aggregate_local）。
+        """
+        if not day_summaries:
+            return self._aggregate_local(request, day_summaries)
+
+        summary_lines = [render_day_summary_line(e) for e in day_summaries]
+        prompt = (
+            f"你是资深旅行顾问。请根据以下「{request.destination}」{len(day_summaries)} 日行程的每日摘要，"
+            "生成整份行程的名称、亮点、贴士、推荐美食与购物建议。\n\n"
+            f"行程日期：{request.start_date.isoformat()} 至 {request.end_date.isoformat()}\n"
+            "每日摘要：\n"
+            + "\n".join(summary_lines)
+            + "\n\n"
+            '只返回 JSON，格式：{"trip_name": "行程名称", "trip_highlights": ["亮点1", ...], '
+            '"trip_tips": ["贴士1", ...], "recommended_foods": ["美食1", ...], '
+            '"recommended_shopping": ["购物1", ...]}'
+        )
+        try:
+            llm = self._llm or build_json_llm(temperature=0.3, max_tokens=512)
+            log_llm_invocation()
+            messages = [HumanMessage(content=prompt)]
+            log_llm_request(
+                messages=messages,
+                note="trip_summary",
+                model=getattr(llm, "model_name", None),
+                temperature=0.3,
+                max_tokens=512,
+                streaming=False,
+                thinking=get_llm_thinking_config(),
+            )
+            resp = llm.invoke(messages)
+            log_llm_reasoning_from_message(resp, note="trip_summary")
+            content = resp.content if isinstance(resp.content, str) else str(resp.content)
+            data = json.loads(_strip_json_fence(content))
+            if not isinstance(data, dict):
+                raise ValueError("聚合结果不是 JSON 对象")
+            return self._normalize_aggregated(data, request, day_summaries)
+        except Exception as e:
+            logger.warning(f"整份行程聚合 LLM 调用失败，降级本地聚合: {e}")
+            return self._aggregate_local(request, day_summaries)
+
+    @staticmethod
+    def _normalize_aggregated(
+        data: dict,
+        request: TripRequest,
+        day_summaries: List[dict],
+    ) -> Dict[str, Any]:
+        """LLM 聚合结果规范化（类型/长度裁剪；缺失字段用本地聚合补齐）。"""
+        local = TripService._aggregate_local(request, day_summaries)
+
+        def _list(value: Any, default: List[str]) -> List[str]:
+            if not isinstance(value, list):
+                return default
+            cleaned = [str(x).strip() for x in value if isinstance(x, str) and x.strip()]
+            return cleaned[:8] or default
+
+        def _str(value: Any, default: str) -> str:
+            return str(value).strip()[:60] if isinstance(value, str) and value.strip() else default
+
+        return {
+            "trip_name": _str(data.get("trip_name"), local["trip_name"]),
+            "trip_highlights": _list(data.get("trip_highlights"), local["trip_highlights"]),
+            "trip_tips": _list(data.get("trip_tips"), local["trip_tips"]),
+            "recommended_foods": _list(data.get("recommended_foods"), local["recommended_foods"]),
+            "recommended_shopping": _list(
+                data.get("recommended_shopping"), local["recommended_shopping"]
+            ),
+        }
+
+    @staticmethod
+    def _aggregate_local(
+        request: TripRequest,
+        day_summaries: List[dict],
+    ) -> Dict[str, Any]:
+        """本地聚合兜底：由每日摘要/主题/餐饮名拼装整份元信息（0 次 LLM 调用）。"""
+        total = len(day_summaries) or 1
+        highlights: List[str] = []
+        for e in day_summaries:
+            theme = e.get("theme") or f"第{e.get('day_number')}天"
+            places = "、".join(str(p) for p in (e.get("places") or [])[:3])
+            highlights.append(f"{theme}：{places}" if places else theme)
+        if not highlights:
+            highlights = [f"{request.destination}{total}日经典行程"]
+        tips = [
+            "【出行准备】出行前确认各景点最新开放时间和预约政策，热门景点建议提前预约",
+            "【交通出行】建议提前规划每日交通路线，预留通勤时间",
+            "【安全须知】保管好个人财物，尤其在人流密集的景区",
+        ]
+        foods: List[str] = []
+        for e in day_summaries:
+            for key in ("lunch", "dinner"):
+                name = e.get(key)
+                if name and str(name) not in foods:
+                    foods.append(str(name))
+            if len(foods) >= 5:
+                break
+        return {
+            "trip_name": f"{request.destination}{total}日游",
+            "trip_highlights": highlights[:5],
+            "trip_tips": tips,
+            "recommended_foods": foods[:8],
+            "recommended_shopping": [],
+        }
+
+    @staticmethod
+    def _special_needs_notes(request: TripRequest) -> List[str]:
+        """同行状态（特殊需求）满足说明（与 batch draft_to_trip_response 同源）。"""
+        notes: List[str] = []
+        if request.with_kids:
+            notes.append("已优先安排亲子友好、安全可控的景点，避免高强度徒步与危险区域")
+            notes.append("行程节奏舒缓，预留充足休息与用餐时间，适合儿童体力")
+        if request.with_elderly:
+            notes.append("已安排轻松、少步行的路线，每日景点数量适中，控制体力消耗")
+            notes.append("优先选择有休息设施、平坦好走的景点，避免长时间爬山")
+        if request.has_disability:
+            notes.append("已优先选择无障碍通道可达、台阶少、地面平缓的景点")
+            notes.append("每日行程均考虑轮椅通行便利性，尽量减少步行距离")
+        return notes
 
     # ================================================================
     # 12.1 方案 A：行程预览（先图后等）
@@ -680,25 +1188,37 @@ class TripService:
 
         city = trip.destination
         city_adcode = self._resolve_city_adcode(city)
-        new_days: List[ItineraryDay] = []
         photo_cache: Dict[str, List[str]] = {}
-        for day in trip.days:
-            new_items: List[ItineraryItem] = []
-            for item in day.items:
-                new_place = self._geocode_place(
-                    item.place, city, amap, warnings, day.day_number, city_adcode
-                )
-                new_place = self._enrich_place_photos(
-                    new_place, city, amap, warnings, f"第{day.day_number}天", photo_cache
-                )
-                new_items.append(item.model_copy(update={"place": new_place}))
-            new_day = day.model_copy(update={"items": new_items})
-            new_day = self._enrich_day_meals_hotel(
-                new_day, city, amap, warnings, photo_cache, city_adcode
-            )
-            new_days.append(new_day)
+        new_days = [
+            self._enrich_day_map(day, city, amap, warnings, photo_cache, city_adcode)
+            for day in trip.days
+        ]
 
         return trip.model_copy(update={"days": new_days})
+
+    def _enrich_day_map(
+        self,
+        day: ItineraryDay,
+        city: str,
+        amap: AmapGeoService,
+        warnings: List[str],
+        photo_cache: Dict[str, List[str]],
+        city_adcode: Optional[str],
+    ) -> ItineraryDay:
+        """单日地图/图片补全（供 13.3 逐天循环逐日调用；batch _enrich_map 同源复用）。"""
+        new_items: List[ItineraryItem] = []
+        for item in day.items:
+            new_place = self._geocode_place(
+                item.place, city, amap, warnings, day.day_number, city_adcode
+            )
+            new_place = self._enrich_place_photos(
+                new_place, city, amap, warnings, f"第{day.day_number}天", photo_cache
+            )
+            new_items.append(item.model_copy(update={"place": new_place}))
+        new_day = day.model_copy(update={"items": new_items})
+        return self._enrich_day_meals_hotel(
+            new_day, city, amap, warnings, photo_cache, city_adcode
+        )
 
     def _geocode_place(
         self,

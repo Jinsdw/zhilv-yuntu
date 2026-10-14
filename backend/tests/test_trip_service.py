@@ -8,7 +8,9 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -40,10 +42,23 @@ from app.services.trip_service import (
     is_preset_city,
 )
 
+# app.services.__init__ 会把 trip_service 单例导出到包属性，
+# 直接 import app.services.trip_service 会拿到单例；用 importlib 取真实模块以便 monkeypatch。
+trip_service_mod = importlib.import_module("app.services.trip_service")
+
 
 # ============================================================================
 # Fixtures
 # ============================================================================
+
+@pytest.fixture(autouse=True)
+def _batch_mode_default(monkeypatch):
+    """既有 batch 编排测试默认 TRIP_GEN_MODE=batch；daily 专项测试自行覆盖。"""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "TRIP_GEN_MODE", "batch")
+    yield
+
 
 def _future_request(**kwargs: Any) -> TripRequest:
     start = date.today() + timedelta(days=14)
@@ -989,3 +1004,338 @@ class TestHelpers:
     def test_compose_address_returns_none_for_empty(self):
         result = GeocodeResult(status=True)
         assert TripService._compose_address(result) is None
+
+
+# ============================================================================
+# 13.3 逐天编排循环（方案B · 真·逐天生成）
+# ============================================================================
+
+class _FakePool:
+    """B 级候选池替身：实现 to_prompt_sections，供 _prepare_day_state 消费。"""
+
+    def __init__(self, sections=None, scenic_places=None):
+        self._sections = sections or {
+            "scenic": [], "food": [], "hotel": [], "clusters": {}, "index": {},
+        }
+        self.scenic_places = scenic_places or []
+        self.food_places = []
+        self.hotel_places = []
+        self.warnings = []
+
+    def to_prompt_sections(self):
+        return self._sections
+
+
+def _empty_pool() -> SimpleNamespace:
+    """A 级仅供图路径的空候选池（build_pool_sync 替身）。"""
+    return SimpleNamespace(
+        scenic_places=[], food_places=[], hotel_places=[], warnings=[]
+    )
+
+
+def _simple_day(request: TripRequest, day_no: int) -> ItineraryDay:
+    """run_day_chain 替身返回的单日 ItineraryDay。"""
+    return ItineraryDay(
+        day_number=day_no,
+        itinerary_date=request.start_date + timedelta(days=day_no - 1),
+        day_theme=f"主题{day_no}",
+        items=[
+            ItineraryItem(
+                start_time="09:00",
+                end_time="11:00",
+                place=PlaceInfo(
+                    place_id=f"pid{day_no}",
+                    name=f"景点{day_no}",
+                    address="待地图服务补全",
+                    coordinate=Coordinate(latitude=0.0, longitude=0.0),
+                    category="景点",
+                ),
+                activity="游览",
+            )
+        ],
+        total_places=1,
+        total_rating=4.5,
+    )
+
+
+def _fake_day_chain(state: dict, *, on_event=None) -> dict:
+    """run_day_chain 替身：返回单日产物与跨天记忆 patch。"""
+    day_no = state["day_number"]
+    request = state["request"]
+    return {
+        "draft_day": SimpleNamespace(
+            day_theme=f"主题{day_no}",
+            day_summary=f"第{day_no}天概述",
+            items=[SimpleNamespace(name=f"景点{day_no}")],
+        ),
+        "day": _simple_day(request, day_no),
+        "day_warnings": [],
+        "fallback_used": False,
+        "meta": {"daily_llm_calls": [{"day": day_no, "attempt": 1, "ok": True}]},
+        "error": None,
+        "memory": {
+            "used_place_ids_added": [f"pid{day_no}"],
+            "used_names_added": [f"景点{day_no}"],
+            "prev_district": "东城区",
+            "prev_hotel": "王府井大酒店",
+            "day_summary": {
+                "day_number": day_no,
+                "date": state["day_date"].isoformat(),
+                "theme": f"主题{day_no}",
+                "places": [f"景点{day_no}"],
+                "district": "东城区",
+                "hotel": "王府井大酒店",
+                "lunch": "全聚德",
+                "dinner": "东来顺",
+                "cost": 100.0,
+            },
+        },
+    }
+
+
+def _daily_aggregate(self, request, summaries):
+    """_aggregate_trip_summary 替身（避免测试打 LLM）。"""
+    return {
+        "trip_name": f"{request.destination}3日游",
+        "trip_highlights": ["文化之旅"],
+        "trip_tips": ["提前预约"],
+        "recommended_foods": ["火锅"],
+        "recommended_shopping": [],
+    }
+
+
+class TestGenerateDaily:
+    """13.3 逐天编排循环：多次 run_day_chain + day 事件 + 跨天记忆 + 全量收尾。"""
+
+    @pytest.fixture(autouse=True)
+    def _daily_env(self, monkeypatch):
+        """daily 专项环境：TRIP_GEN_MODE=daily + 屏蔽外部网络依赖。"""
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "TRIP_GEN_MODE", "daily")
+        monkeypatch.setattr(TripService, "_get_amap_geo", lambda self: None)
+        monkeypatch.setattr(TripService, "_fetch_forecast_by_date", lambda self, req: None)
+        monkeypatch.setattr(
+            trip_service_mod,
+            "default_rag_tool",
+            SimpleNamespace(
+                search_for_trip=lambda request: SimpleNamespace(context_text="攻略上下文")
+            ),
+        )
+        monkeypatch.setattr(TripService, "_aggregate_trip_summary", _daily_aggregate)
+        yield
+
+    def test_generate_daily_loop_calls_chain_per_day_and_emits_day_events(
+        self, monkeypatch
+    ):
+        """3 天：run_day_chain 调用 3 次；day(draft) → day(enriched) 按天有序；finalize 收尾。"""
+        calls: list[int] = []
+
+        def fake_chain(state, *, on_event=None):
+            calls.append(state["day_number"])
+            return _fake_day_chain(state, on_event=on_event)
+
+        monkeypatch.setattr(trip_service_mod, "run_day_chain", fake_chain)
+        storage = MagicMock()
+        storage.create_trip.return_value = "TRP-DAILY-001"
+        cache = MagicMock()
+        cache.get.return_value = None
+        svc = _build_service(
+            place_service=SimpleNamespace(build_pool_sync=lambda request: _empty_pool()),
+            storage=storage,
+            cache=cache,
+        )
+        events: list[dict] = []
+        trip = svc.generate_trip(
+            _future_request(destination="成都", days=3),
+            on_event=events.append,
+        )
+
+        assert calls == [1, 2, 3]
+        assert trip.total_days == 3
+        assert len(trip.days) == 3
+        assert trip.metadata["generation_mode"] == "daily"
+        assert len(trip.metadata["daily_llm_calls"]) == 3
+        assert trip.trip_name == "成都3日游"
+        storage.create_trip.assert_called_once()
+        cache.set.assert_called_once()
+
+        day_events = [e for e in events if e["type"] == "day"]
+        seq = [(e["state"], e["day_number"]) for e in day_events]
+        assert seq == [
+            ("draft", 1), ("enriched", 1),
+            ("draft", 2), ("enriched", 2),
+            ("draft", 3), ("enriched", 3),
+        ]
+        statuses = [e for e in events if e["type"] == "status"]
+        assert any(s["stage"] == "finalize" for s in statuses)
+        # 逐天模式不推整份 draft 骨架事件
+        assert all(e["type"] != "draft" for e in events)
+
+    def test_generate_daily_sync_no_events(self, monkeypatch):
+        """非流式：on_event=None 走同一逐天路径，不推事件。"""
+        monkeypatch.setattr(trip_service_mod, "run_day_chain", _fake_day_chain)
+        svc = _build_service(
+            place_service=SimpleNamespace(build_pool_sync=lambda request: _empty_pool()),
+            storage=MagicMock(),
+            cache=MagicMock(),
+        )
+        trip = svc.generate_trip(_future_request(destination="成都", days=2))
+        assert trip.total_days == 2
+        assert len(trip.days) == 2
+
+    def test_generate_daily_cache_hit_skips_loop(self, monkeypatch):
+        """缓存命中：直出 + status(cache_hit)，不进入逐天循环。"""
+
+        def _should_not_run(state, *, on_event=None):
+            raise AssertionError("缓存命中不应进入逐天循环")
+
+        monkeypatch.setattr(trip_service_mod, "run_day_chain", _should_not_run)
+        request = _future_request(destination="成都", days=2)
+        cached = _placeholder_trip(request, days=2)
+        cache = MagicMock()
+        cache.get.return_value = cached.model_dump(mode="json")
+        storage = MagicMock()
+        svc = _build_service(
+            place_service=SimpleNamespace(build_pool_sync=lambda request: _empty_pool()),
+            storage=storage,
+            cache=cache,
+        )
+        events: list[dict] = []
+        trip = svc.generate_trip(request, on_event=events.append)
+        assert trip.trip_id == cached.trip_id
+        assert trip.metadata["cache_hit"] is True
+        storage.create_trip.assert_not_called()
+        statuses = [e for e in events if e["type"] == "status"]
+        assert any(s["stage"] == "cache_hit" for s in statuses)
+
+    def test_generate_daily_single_day_fatal_raises(self, monkeypatch):
+        """单日兜底仍失败（罕见）：中止整份并抛 TripServiceError，不持久化。"""
+
+        def fatal(state, *, on_event=None):
+            if state["day_number"] == 2:
+                return {"error": "第2天兜底也失败", "meta": {}}
+            return _fake_day_chain(state, on_event=on_event)
+
+        monkeypatch.setattr(trip_service_mod, "run_day_chain", fatal)
+        storage = MagicMock()
+        svc = _build_service(
+            place_service=SimpleNamespace(build_pool_sync=lambda request: _empty_pool()),
+            storage=storage,
+            cache=MagicMock(),
+        )
+        with pytest.raises(TripServiceError, match="第2天生成失败"):
+            svc.generate_trip(_future_request(destination="成都", days=3))
+        storage.create_trip.assert_not_called()
+
+    def test_generate_daily_weather_attached(self, monkeypatch):
+        """天气一次性取整段预报后逐天挂载。"""
+        monkeypatch.setattr(trip_service_mod, "run_day_chain", _fake_day_chain)
+        request = _future_request(destination="成都", days=2)
+        by_date = {
+            request.start_date: _weather_info(request.start_date),
+            request.start_date + timedelta(days=1): _weather_info(
+                request.start_date + timedelta(days=1), weather="多云"
+            ),
+        }
+        monkeypatch.setattr(
+            TripService, "_fetch_forecast_by_date", lambda self, req: by_date
+        )
+        svc = _build_service(
+            place_service=SimpleNamespace(build_pool_sync=lambda request: _empty_pool()),
+            storage=MagicMock(),
+            cache=MagicMock(),
+        )
+        trip = svc.generate_trip(request)
+        assert trip.days[0].weather is not None
+        assert trip.days[0].weather.weather_type == "晴"
+        assert trip.days[1].weather.weather_type == "多云"
+
+    def test_generate_daily_dynamic_city_uses_pool(self, monkeypatch):
+        """B 级动态城市：POI 三池驱动，候选池就绪后推 poi 事件。"""
+        monkeypatch.setattr(trip_service_mod, "run_day_chain", _fake_day_chain)
+        sections = {
+            "scenic": [
+                {"place_id": "p1", "name": "西湖", "rating": 4.8, "cost": 0, "district": "西湖区"},
+                {"place_id": "p2", "name": "灵隐寺", "rating": 4.7, "cost": 30, "district": "西湖区"},
+            ],
+            "food": [{"place_id": "f1", "name": "楼外楼", "cost": 120, "district": "西湖区"}],
+            "hotel": [{"place_id": "h1", "name": "西湖大酒店", "cost": 500, "district": "西湖区"}],
+            "clusters": {"西湖区": ["p1", "p2"]},
+            "index": {
+                "p1": {"place_id": "p1", "name": "西湖", "cost": 0, "district": "西湖区"},
+                "p2": {"place_id": "p2", "name": "灵隐寺", "cost": 30, "district": "西湖区"},
+                "f1": {"place_id": "f1", "name": "楼外楼", "cost": 120, "district": "西湖区"},
+                "h1": {"place_id": "h1", "name": "西湖大酒店", "cost": 500, "district": "西湖区"},
+            },
+        }
+        pool = _FakePool(
+            sections,
+            scenic_places=[
+                SimpleNamespace(
+                    name="西湖", category="景点", address="", district="西湖区",
+                    rating=4.8, photos=[], score=9.2,
+                )
+            ],
+        )
+        svc = _build_service(
+            place_service=SimpleNamespace(build_pool_sync=lambda request: pool),
+            storage=MagicMock(),
+            cache=MagicMock(),
+        )
+        events: list[dict] = []
+        trip = svc.generate_trip(
+            _future_request(destination="杭州", days=2),
+            on_event=events.append,
+        )
+        assert trip.total_days == 2
+        poi_events = [e for e in events if e["type"] == "poi"]
+        assert poi_events
+
+    def test_generate_trip_mode_switch_batch(self, monkeypatch):
+        """TRIP_GEN_MODE=batch：回退整份生成路径（agent.plan 一次）。"""
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "TRIP_GEN_MODE", "batch")
+        agent = MagicMock()
+        agent.plan.return_value = _placeholder_trip(
+            _future_request(destination="成都", days=2), days=2
+        )
+        svc = _build_service(
+            agent=agent,
+            place_service=SimpleNamespace(build_pool_sync=lambda request: _empty_pool()),
+            storage=MagicMock(),
+            cache=MagicMock(),
+        )
+        trip = svc.generate_trip(_future_request(destination="成都", days=2))
+        assert trip.total_days == 2
+        agent.plan.assert_called_once()
+
+    def test_aggregate_local_fills_from_summaries(self):
+        """本地聚合兜底：由每日主题/餐饮名拼装整份元信息。"""
+        summaries = [
+            {"day_number": 1, "theme": "文化之旅", "places": ["故宫", "景山"], "lunch": "全聚德", "dinner": "东来顺", "cost": 100},
+            {"day_number": 2, "theme": "自然之旅", "places": ["颐和园"], "lunch": "烤鸭店", "dinner": None, "cost": 120},
+        ]
+        agg = TripService._aggregate_local(
+            _future_request(destination="北京"), summaries
+        )
+        assert "文化之旅" in agg["trip_highlights"][0]
+        assert "全聚德" in agg["recommended_foods"]
+        assert agg["trip_name"] == "北京2日游"
+
+    def test_normalize_aggregated_cleans_and_falls_back(self):
+        """LLM 聚合结果规范化：裁剪类型/长度，缺失字段回退本地。"""
+        data = {
+            "trip_name": "  LLM标题  ",
+            "trip_highlights": ["亮点A", 123, ""],
+            "trip_tips": "not-a-list",
+            "recommended_foods": ["美食"],
+            "recommended_shopping": None,
+        }
+        agg = TripService._normalize_aggregated(data, _future_request(), [])
+        assert agg["trip_name"] == "LLM标题"
+        assert agg["trip_highlights"] == ["亮点A"]
+        assert agg["trip_tips"]  # 非列表回退本地默认
+        assert agg["recommended_foods"] == ["美食"]
+        assert agg["recommended_shopping"] == []

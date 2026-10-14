@@ -265,6 +265,8 @@ def generate_day_llm(
                 "day_number": day_number,
                 "total_days": total_days,
                 "message": f"正在规划第 {day_number}/{total_days} 天…",
+                # 与 trip_service.STREAM_STAGES["day_generating"] 对齐
+                "progress": 40,
             })
         except Exception:
             logger.debug("day_generating 事件推送失败（忽略）")

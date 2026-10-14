@@ -47,6 +47,7 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL}
       - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL}
       - RERANK_MODEL=${RERANK_MODEL}
+      - TRIP_GEN_MODE=${TRIP_GEN_MODE:-daily}
       - AMAP_API_KEY=${AMAP_API_KEY}
       - CHROMA_DB_PATH=/app/chroma_db
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/trips.db}

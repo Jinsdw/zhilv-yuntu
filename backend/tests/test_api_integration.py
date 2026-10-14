@@ -176,6 +176,7 @@ def app_env(tmp_path):
     返回 (TestClient, agent_mock, temp_storage)。
     """
     from app.api.main import app
+    from app.config import settings
     from app.services.storage_service import StorageService
     from app.services.trip_service import trip_service
 
@@ -212,6 +213,8 @@ def app_env(tmp_path):
         patch.object(trip_service, "_weather", weather),
         patch.object(trip_service, "_llm", llm),
         patch.object(trip_service, "_cache", cache),
+        # 集成测试锁定 batch 整份生成路径（daily 逐天编排在 test_trip_service 专项覆盖）
+        patch.object(settings, "TRIP_GEN_MODE", "batch"),
     ]
     for p in patches:
         p.start()

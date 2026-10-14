@@ -59,12 +59,25 @@ class Settings(BaseSettings):
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
 
+    # 行程生成模式：batch（一次生成全部，LangGraph 主图）| daily（逐天生成，多次 LLM 调用）
+    # 默认 daily；batch 用于回退对比与 A/B 验证。请求级可经 /generate?mode= 覆盖。
+    TRIP_GEN_MODE: str = "daily"
+
     @model_validator(mode="after")
     def _validate_llm_provider(self):
         """LLM_PROVIDER 仅允许 zhipu / zhipu4 / packycode / deepseek。"""
         if self.LLM_PROVIDER not in ("zhipu", "zhipu4", "packycode", "deepseek"):
             raise ValueError(
                 f"LLM_PROVIDER 仅支持 'zhipu' / 'zhipu4' / 'packycode' / 'deepseek'，当前为: {self.LLM_PROVIDER!r}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_trip_gen_mode(self):
+        """TRIP_GEN_MODE 仅允许 batch / daily。"""
+        if self.TRIP_GEN_MODE not in ("batch", "daily"):
+            raise ValueError(
+                f"TRIP_GEN_MODE 仅支持 'batch' / 'daily'，当前为: {self.TRIP_GEN_MODE!r}"
             )
         return self
 
